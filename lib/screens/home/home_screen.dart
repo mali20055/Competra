@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../components/pitch_pattern_background.dart';
 import '../../core/time_ago.dart';
+import '../../core/utils/format_labels.dart';
 import '../../models/app_notification.dart';
 import '../../models/tournament.dart';
 import '../../router/route_paths.dart';
@@ -614,7 +615,7 @@ class _FormatBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
-        _formatLabel(format),
+        tournamentFormatLabel(format).toUpperCase(),
         style: theme.textTheme.labelSmall?.copyWith(
           color: scheme.primary,
           fontWeight: FontWeight.w700,
@@ -749,17 +750,3 @@ class _MessageCard extends StatelessWidget {
 }
 
 /// Turnuva formatı kod adını kısa Türkçe etikete çevirir.
-String _formatLabel(String format) {
-  switch (format) {
-    case 'league':
-      return 'LİG';
-    case 'knockout':
-      return 'ELEME';
-    case 'groupKnockout':
-      return 'GRUP+ELEME';
-    case 'championsLeague':
-      return 'ŞAMPİYONLAR';
-    default:
-      return 'TURNUVA';
-  }
-}

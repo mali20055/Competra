@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/utils/sort_utils.dart';
 import '../models/tournament.dart';
 import 'fixture_generator.dart';
 import 'firebase_providers.dart';
@@ -342,14 +343,7 @@ final myTournamentsStreamProvider =
       .snapshots()
       .map((snap) {
     final list = snap.docs.map(Tournament.fromDoc).toList()
-      ..sort((a, b) {
-        final ad = a.createdAt;
-        final bd = b.createdAt;
-        if (ad == null && bd == null) return 0;
-        if (ad == null) return 1;
-        if (bd == null) return -1;
-        return bd.compareTo(ad);
-      });
+      ..sort((a, b) => compareByCreatedAtDesc(a.createdAt, b.createdAt));
     return list;
   });
 });

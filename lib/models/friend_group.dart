@@ -33,8 +33,8 @@ class FriendGroup {
 
 /// `friendGroups/{id}/members/{uid}` belgesinin model karşılığı.
 ///
-/// Bir maç tamamlandığında [SocialRepository.updateFriendGroupStats] tarafından
-/// güncellenen, grup içi kümülatif istatistikleri taşır.
+/// Bir maç tamamlandığında Cloud Functions tarafından güncellenen, grup içi
+/// kümülatif istatistikleri taşır.
 class FriendGroupMember {
   const FriendGroupMember({
     required this.uid,

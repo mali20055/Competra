@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/utils/format_labels.dart';
 import '../../models/tournament.dart';
 import '../../router/route_paths.dart';
 import '../../services/tournament_repository.dart';
@@ -235,7 +236,7 @@ class _TournamentCard extends StatelessWidget {
                     Row(
                       children: [
                         _Badge(
-                          label: _formatLabel(tournament.format),
+                          label: tournamentFormatLabel(tournament.format).toUpperCase(),
                           color: scheme.primary,
                         ),
                         const SizedBox(width: 8),
@@ -415,17 +416,3 @@ class _EmptyState extends StatelessWidget {
 }
 
 /// Turnuva formatı kod adını Türkçe etikete çevirir.
-String _formatLabel(String format) {
-  switch (format) {
-    case 'league':
-      return 'LİG';
-    case 'knockout':
-      return 'ELEME';
-    case 'groupKnockout':
-      return 'GRUP+ELEME';
-    case 'championsLeague':
-      return 'ŞAMPİYONLAR';
-    default:
-      return 'TURNUVA';
-  }
-}

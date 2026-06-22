@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/utils/format_labels.dart';
 import '../../models/tournament.dart';
 import '../../router/route_paths.dart';
 import '../../services/firebase_providers.dart';
@@ -574,7 +575,7 @@ class _InfoHeader extends StatelessWidget {
         children: [
           _Chip(
             icon: Icons.category_outlined,
-            label: _formatLabel(tournament.format),
+            label: tournamentFormatLabel(tournament.format),
           ),
           const SizedBox(width: 8),
           _Chip(
@@ -2326,20 +2327,6 @@ class _NoteCard extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 /// Turnuva formatı kod adını ([TournamentFormat.name]) Türkçe etikete çevirir.
-String _formatLabel(String format) {
-  switch (format) {
-    case 'league':
-      return 'Lig';
-    case 'knockout':
-      return 'Eleme';
-    case 'groupKnockout':
-      return 'Grup + Eleme';
-    case 'championsLeague':
-      return 'Şampiyonlar Ligi';
-    default:
-      return 'Turnuva';
-  }
-}
 
 /// Boş sekme durumlarında gösterilen ortak yer tutucu.
 class _EmptyState extends StatelessWidget {

@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 /// Tek bir rozetin tanımı.
 ///
 /// Rozet koşulları (nasıl kazanıldığı) burada tutulmaz; bir kısmı yalnızca
-/// toplam istatistiklerden ([AchievementService] içinde), bir kısmı ise maç/
-/// turnuva bazlı olaylardan kazanılır. [isEarned] yalnızca görüntüleme için bir
-/// bayraktır.
+/// toplam istatistiklerden, bir kısmı ise maç/turnuva bazlı olaylardan kazanılır
+/// (rozet türetimi artık Cloud Functions tarafında yapılır). [isEarned] yalnızca
+/// görüntüleme için bir bayraktır.
 class BadgeDefinition {
   const BadgeDefinition({
     required this.id,

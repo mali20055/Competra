@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/utils/sort_utils.dart';
 import '../models/friend_group.dart';
 import '../models/friendship.dart';
 import '../models/tournament.dart' show Participant;
@@ -98,61 +99,6 @@ class SocialRepository {
     }
   }
 
-  /// Bir maç tamamlandığında, iki oyuncunun da ortak üye olduğu arkadaş
-  /// gruplarının grup-içi istatistiklerini günceller.
-  ///
-  /// Yalnızca her iki oyuncunun da üyesi olduğu gruplar (kesişim) güncellenir;
-  /// böylece grup içi sıralama tabloları yalnızca o grubun üyeleri arasında
-  /// oynanan maçları yansıtır.
-  Future<void> updateFriendGroupStats({
-    required String homeUid,
-    required String awayUid,
-    required int homeScore,
-    required int awayScore,
-  }) async {
-    // 1) Her iki kullanıcının üye olduğu grupların id'lerini bul.
-    final homeGroups = await _groupIdsFor(homeUid);
-    final awayGroups = await _groupIdsFor(awayUid);
-
-    // 2) Kesişen gruplar (her ikisinin de üyesi).
-    final sharedGroups = homeGroups.intersection(awayGroups);
-    if (sharedGroups.isEmpty) return;
-
-    final homeWin = homeScore > awayScore;
-    final awayWin = awayScore > homeScore;
-    final draw = homeScore == awayScore;
-
-    // 3) Tek batch ile tüm ortak grupların iki üye belgesini güncelle.
-    final batch = _firestore.batch();
-    final groups = _firestore.collection('friendGroups');
-    for (final groupId in sharedGroups) {
-      final members = groups.doc(groupId).collection('members');
-      batch.set(
-        members.doc(homeUid),
-        _memberStatsDelta(
-          goalsScored: homeScore,
-          goalsConceded: awayScore,
-          win: homeWin,
-          draw: draw,
-          loss: awayWin,
-        ),
-        SetOptions(merge: true),
-      );
-      batch.set(
-        members.doc(awayUid),
-        _memberStatsDelta(
-          goalsScored: awayScore,
-          goalsConceded: homeScore,
-          win: awayWin,
-          draw: draw,
-          loss: homeWin,
-        ),
-        SetOptions(merge: true),
-      );
-    }
-    await batch.commit();
-  }
-
   /// Yeni bir arkadaş grubu oluşturur ve oluşturanı ilk üye yapar.
   ///
   /// Önce grup belgesi yazılır, ardından üye belgesi eklenir: güvenlik
@@ -218,46 +164,6 @@ class SocialRepository {
     await batch.commit();
   }
 
-  /// Verilen kullanıcının üye olduğu tüm `friendGroups` id'lerini döner.
-  ///
-  /// Üyelik, `friendGroups/{id}/members/{uid}` alt belgesinin varlığıyla
-  /// belirlenir; collectionGroup sorgusuyla `uid` alanına göre çekilir.
-  Future<Set<String>> _groupIdsFor(String uid) async {
-    final snap = await _firestore
-        .collectionGroup('members')
-        .where('uid', isEqualTo: uid)
-        .get();
-    return {
-      for (final doc in snap.docs)
-        if (doc.reference.parent.parent != null)
-          doc.reference.parent.parent!.id,
-    };
-  }
-
-  /// Tek bir maçtan bir grup üyesinin istatistiklerine eklenecek artışlar.
-  Map<String, dynamic> _memberStatsDelta({
-    required int goalsScored,
-    required int goalsConceded,
-    required bool win,
-    required bool draw,
-    required bool loss,
-  }) {
-    final map = <String, dynamic>{
-      'totalMatches': FieldValue.increment(1),
-      'totalGoalsScored': FieldValue.increment(goalsScored),
-      'totalGoalsConceded': FieldValue.increment(goalsConceded),
-    };
-    if (win) {
-      map['totalWins'] = FieldValue.increment(1);
-      map['totalPoints'] = FieldValue.increment(3);
-    } else if (draw) {
-      map['totalPoints'] = FieldValue.increment(1);
-    }
-    if (loss) {
-      map['totalLosses'] = FieldValue.increment(1);
-    }
-    return map;
-  }
 }
 
 final socialRepositoryProvider = Provider<SocialRepository>(
@@ -315,14 +221,7 @@ final myFriendGroupsProvider = StreamProvider<List<FriendGroup>>((ref) {
       final groupSnap = await groupRef.get();
       if (groupSnap.exists) groups.add(FriendGroup.fromDoc(groupSnap));
     }
-    groups.sort((a, b) {
-      final ad = a.createdAt;
-      final bd = b.createdAt;
-      if (ad == null && bd == null) return 0;
-      if (ad == null) return 1;
-      if (bd == null) return -1;
-      return bd.compareTo(ad);
-    });
+    groups.sort((a, b) => compareByCreatedAtDesc(a.createdAt, b.createdAt));
     return groups;
   });
 });
