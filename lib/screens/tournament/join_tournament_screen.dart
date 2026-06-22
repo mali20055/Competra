@@ -12,7 +12,10 @@ import '../../services/tournament_repository.dart';
 /// alanıyla aranır. Bulunursa kullanıcı katılımcı listesine eklenir ve turnuva
 /// detayına yönlendirilir. Tüm renkler tema üzerinden gelir.
 class JoinTournamentScreen extends ConsumerStatefulWidget {
-  const JoinTournamentScreen({super.key});
+  const JoinTournamentScreen({super.key, this.initialCode});
+
+  /// Deep link (competra://join/KOD) ile gelindiğinde otomatik doldurulan kod.
+  final String? initialCode;
 
   @override
   ConsumerState<JoinTournamentScreen> createState() =>
@@ -25,6 +28,17 @@ class _JoinTournamentScreenState extends ConsumerState<JoinTournamentScreen> {
   final _controller = TextEditingController();
   bool _loading = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // Deep link'ten gelen kodu otomatik doldur (büyük harf, en çok 6 karakter).
+    final code = widget.initialCode?.trim().toUpperCase();
+    if (code != null && code.isNotEmpty) {
+      _controller.text =
+          code.length > _codeLength ? code.substring(0, _codeLength) : code;
+    }
+  }
 
   @override
   void dispose() {
@@ -54,6 +68,10 @@ class _JoinTournamentScreenState extends ConsumerState<JoinTournamentScreen> {
     } on TournamentNotFoundException {
       if (mounted) {
         setState(() => _error = 'Bu koda sahip bir turnuva bulunamadı.');
+      }
+    } on TournamentJoinClosedException catch (e) {
+      if (mounted) {
+        setState(() => _error = e.message);
       }
     } catch (_) {
       if (mounted) {

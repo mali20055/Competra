@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../components/pitch_pattern_background.dart';
 import '../../router/route_paths.dart';
+import '../onboarding/onboarding_screen.dart';
 
 /// Açılış (splash) ekranı.
 ///
@@ -24,17 +27,41 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Timer? _timer;
 
+  /// Hem süreli zamanlayıcı hem de dokunma aynı anda tetiklenebileceğinden,
+  /// yönlendirmenin yalnızca bir kez yapılmasını sağlar.
+  bool _navigated = false;
+
   @override
   void initState() {
     super.initState();
-    // TODO: Firebase Auth bağlandığında oturum durumuna göre yönlendir
-    // (oturum açıksa /home, değilse /login).
     _timer = Timer(_holdDuration, _goNext);
   }
 
-  void _goNext() {
+  /// Önce onboarding bayrağını kontrol eder; ilk açılışsa (bayrak `false`)
+  /// tanıtım turuna gider. Aksi halde oturum durumuna göre yönlendirir: oturum
+  /// açık (gerçek ya da misafir/anonim) kullanıcı → ana panel; oturum yok →
+  /// giriş ekranı.
+  Future<void> _goNext() async {
+    if (_navigated || !mounted) return;
+    _navigated = true;
+
+    final prefs = await SharedPreferences.getInstance();
+    final onboardingDone =
+        prefs.getBool(OnboardingScreen.completedKey) ?? false;
     if (!mounted) return;
-    context.goNamed(RoutePaths.loginName);
+
+    if (!onboardingDone) {
+      context.goNamed(RoutePaths.onboardingName);
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      // Gerçek hesap ve anonim (misafir) oturum → ana panel.
+      context.goNamed(RoutePaths.homeName);
+    } else {
+      context.goNamed(RoutePaths.loginName);
+    }
   }
 
   @override

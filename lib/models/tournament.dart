@@ -65,12 +65,14 @@ class Tournament {
     required this.note,
     required this.format,
     required this.scoreMode,
+    required this.scoreEntrySystem,
     required this.inviteCode,
     required this.ownerId,
     required this.participants,
     required this.status,
     required this.tiebreakerMode,
     required this.createdAt,
+    required this.currentPhase,
   });
 
   final String id;
@@ -78,6 +80,12 @@ class Tournament {
   final String note;
   final String format;
   final String scoreMode;
+
+  /// Skor giriş sistemi (kanonik): 'adminOnly' | 'winnerEntry' | 'doubleEntry'.
+  ///
+  /// Eski belgelerdeki `scoreMode` enum adları ('bothPlayers'/'winnerEnters'/
+  /// 'adminOnly') buraya normalize edilir (bkz. [_normalizeScoreEntry]).
+  final String scoreEntrySystem;
   final String inviteCode;
   final String ownerId;
   final List<Participant> participants;
@@ -89,8 +97,69 @@ class Tournament {
   final TiebreakerMode tiebreakerMode;
   final DateTime? createdAt;
 
+  /// Turnuvanın bulunduğu aşama:
+  /// 'waiting' | 'league' | 'group' | 'knockout' | 'completed'.
+  ///
+  /// Belgede yoksa duruma/formata göre türetilir (bkz. [_derivePhase]); çok
+  /// aşamalı formatlarda (grup+eleme, Şampiyonlar Ligi) aşama geçişlerini izler.
+  final String currentPhase;
+
   bool get isCompleted => status == 'completed';
   bool get isWaiting => status == 'waiting';
+
+  /// Eleme aşamasında mı? (grup/lig fazından sonra)
+  bool get isKnockoutPhase => currentPhase == 'knockout';
+
+  /// Belgede `currentPhase` yoksa duruma ve formata göre türetir.
+  static String _derivePhase(
+    Map<String, dynamic> data,
+    String format,
+    String status,
+  ) {
+    final raw = data['currentPhase'] as String?;
+    if (raw != null && raw.isNotEmpty) return raw;
+    if (status == 'completed') return 'completed';
+    if (status == 'waiting') return 'waiting';
+    switch (format) {
+      case 'knockout':
+        return 'knockout';
+      case 'groupKnockout':
+      case 'groupElimination':
+        return 'group';
+      case 'championsLeague':
+      case 'league':
+      default:
+        return 'league';
+    }
+  }
+
+  /// Yalnızca yöneticinin skor girdiği mod.
+  bool get isAdminOnlyScoring => scoreEntrySystem == 'adminOnly';
+
+  /// Kazananın (bir tarafın) skoru girip rakibin onayladığı mod.
+  bool get isWinnerEntryScoring => scoreEntrySystem == 'winnerEntry';
+
+  /// Her iki oyuncunun ayrı ayrı skor girip eşleşmesi gereken mod.
+  bool get isDoubleEntryScoring => scoreEntrySystem == 'doubleEntry';
+
+  /// `scoreEntrySystem` (yoksa eski `scoreMode`) değerini kanonik forma çevirir.
+  static String _normalizeScoreEntry(Map<String, dynamic> data) {
+    final raw = (data['scoreEntrySystem'] as String?) ??
+        (data['scoreMode'] as String?) ??
+        '';
+    switch (raw) {
+      case 'adminOnly':
+        return 'adminOnly';
+      case 'winnerEntry':
+      case 'winnerEnters':
+        return 'winnerEntry';
+      case 'doubleEntry':
+      case 'bothPlayers':
+        return 'doubleEntry';
+      default:
+        return 'doubleEntry';
+    }
+  }
 
   factory Tournament.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? const <String, dynamic>{};
@@ -101,6 +170,7 @@ class Tournament {
       note: (data['note'] as String?) ?? '',
       format: (data['format'] as String?) ?? '',
       scoreMode: (data['scoreMode'] as String?) ?? '',
+      scoreEntrySystem: _normalizeScoreEntry(data),
       inviteCode: (data['inviteCode'] as String?) ?? '',
       ownerId: (data['ownerId'] as String?) ?? '',
       participants: [
@@ -111,6 +181,11 @@ class Tournament {
       tiebreakerMode:
           TiebreakerMode.fromString(data['tiebreakerMode'] as String?),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      currentPhase: _derivePhase(
+        data,
+        (data['format'] as String?) ?? '',
+        (data['status'] as String?) ?? 'active',
+      ),
     );
   }
 }
@@ -128,10 +203,39 @@ class TournamentMatch {
     required this.homeScore,
     required this.awayScore,
     required this.isBye,
+    required this.status,
+    required this.enteredBy,
+    required this.enteredHomeScore,
+    required this.enteredAwayScore,
+    required this.secondEnteredBy,
+    required this.secondEnteredHomeScore,
+    required this.secondEnteredAwayScore,
+    this.roundNumber = 1,
+    this.phase = '',
+    this.group = '',
+    this.leg = 1,
   });
 
   final String id;
+
+  /// Kullanıcıya gösterilen tur etiketi ('Final', '1. Hafta' vb.).
   final String round;
+
+  /// Eleme formatında sayısal tur numarası (1 = açılış turu). Tur ilerletmede
+  /// ([generateNextKnockoutRound]) ve [Tournament] `currentRound` ile birlikte
+  /// kullanılır. Lig/grup maçlarında anlamsızdır (varsayılan 1).
+  final int roundNumber;
+
+  /// Maç fazı: 'knockout' | 'group' | 'league' (eski belgelerde boş olabilir).
+  final String phase;
+
+  /// Grup aşamasındaki maçın grup etiketi ('A', 'B'…). Diğer fazlarda boştur.
+  final String group;
+
+  /// Çift maçlı (iki ayaklı) eleme aşamasında ayak numarası: 1 (ev) veya 2
+  /// (rövanş/deplasman). Tek maçlı maçlarda ve diğer fazlarda 1'dir.
+  final int leg;
+
   final int order;
   final String homeUid;
   final String homeName;
@@ -143,13 +247,40 @@ class TournamentMatch {
   /// Bye maçı: oyuncu otomatik tur atlar. Averaja/gol krallığına dahil edilmez.
   final bool isBye;
 
+  /// Maç durumu: 'pending' | 'awaitingConfirmation' | 'completed' | 'disputed'.
+  ///
+  /// Eski belgelerde alan yoksa skordan türetilir (oynandıysa 'completed').
+  final String status;
+
+  /// İlk skoru giren oyuncunun UID'si (winnerEntry/doubleEntry akışı).
+  final String enteredBy;
+
+  /// İlk girilen (henüz kesinleşmemiş) ev sahibi/deplasman skoru.
+  final int? enteredHomeScore;
+  final int? enteredAwayScore;
+
+  /// doubleEntry modunda ikinci oyuncunun girişi (uyuşmazlık halinde saklanır).
+  final String secondEnteredBy;
+  final int? secondEnteredHomeScore;
+  final int? secondEnteredAwayScore;
+
   /// Her iki skor da girilmişse maç oynanmış sayılır.
   bool get isPlayed => homeScore != null && awayScore != null;
+
+  /// Karşı tarafın onayını/girişini bekliyor.
+  bool get isAwaitingConfirmation => status == 'awaitingConfirmation';
+
+  /// Skorlar üzerinde anlaşmazlık var; yöneticinin çözmesi gerekir.
+  bool get isDisputed => status == 'disputed';
+
+  /// Maç kesinleşti (durum 'completed' ya da eski belgede skor girilmiş).
+  bool get isFinal => status == 'completed' || (status.isEmpty && isPlayed);
 
   factory TournamentMatch.fromDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data();
+    int? intOrNull(String key) => (data[key] as num?)?.toInt();
     return TournamentMatch(
       id: doc.id,
       round: (data['round'] as String?) ?? '',
@@ -158,9 +289,25 @@ class TournamentMatch {
       homeName: (data['homeName'] as String?) ?? 'Oyuncu',
       awayUid: (data['awayUid'] as String?) ?? '',
       awayName: (data['awayName'] as String?) ?? 'Oyuncu',
-      homeScore: (data['homeScore'] as num?)?.toInt(),
-      awayScore: (data['awayScore'] as num?)?.toInt(),
+      homeScore: intOrNull('homeScore'),
+      awayScore: intOrNull('awayScore'),
       isBye: (data['isBye'] as bool?) ?? false,
+      status: (data['status'] as String?) ?? '',
+      enteredBy: (data['enteredBy'] as String?) ?? '',
+      enteredHomeScore: intOrNull('enteredHomeScore'),
+      enteredAwayScore: intOrNull('enteredAwayScore'),
+      secondEnteredBy: (data['secondEnteredBy'] as String?) ?? '',
+      secondEnteredHomeScore: intOrNull('secondEnteredHomeScore'),
+      secondEnteredAwayScore: intOrNull('secondEnteredAwayScore'),
+      roundNumber: (data['roundNumber'] as num?)?.toInt() ?? 1,
+      // phase yoksa veya boşsa eski `stage` alanına düşülür.
+      phase: () {
+        final p = data['phase'] as String?;
+        if (p != null && p.isNotEmpty) return p;
+        return (data['stage'] as String?) ?? '';
+      }(),
+      group: (data['group'] as String?) ?? '',
+      leg: (data['leg'] as num?)?.toInt() ?? 1,
     );
   }
 }

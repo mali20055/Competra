@@ -22,6 +22,8 @@ class GeneratedMatch {
     this.isBye = false,
     this.stage = '',
     this.group = '',
+    this.roundNumber = 1,
+    this.phase = '',
   });
 
   final String round;
@@ -36,6 +38,12 @@ class GeneratedMatch {
   final String stage;
   final String group;
 
+  /// Eleme formatında sayısal tur numarası (1 = açılış turu).
+  final int roundNumber;
+
+  /// Maç fazı: 'knockout' | 'group' | 'league'.
+  final String phase;
+
   Map<String, dynamic> toMap() => {
         'round': round,
         'order': order,
@@ -49,6 +57,9 @@ class GeneratedMatch {
         'isBye': isBye,
         'stage': stage,
         'group': group,
+        'roundNumber': roundNumber,
+        'phase': phase,
+        'leg': 1,
       };
 }
 
@@ -120,6 +131,7 @@ List<GeneratedMatch> generateLeagueFixtures(List<Participant> players) {
         awayUid: pair.$2.uid,
         awayName: pair.$2.username,
         stage: 'league',
+        phase: 'league',
       ));
     }
   }
@@ -189,6 +201,8 @@ List<GeneratedMatch> generateKnockoutFixtures(
       awayScore: 0,
       isBye: true,
       stage: 'knockout',
+      phase: 'knockout',
+      roundNumber: 1,
     ));
   }
 
@@ -202,7 +216,84 @@ List<GeneratedMatch> generateKnockoutFixtures(
       awayUid: rest[i + 1].uid,
       awayName: rest[i + 1].username,
       stage: 'knockout',
+      phase: 'knockout',
+      roundNumber: 1,
     ));
+  }
+  return matches;
+}
+
+/// Bir eleme turu tamamlandığında kazananlardan sonraki turun maçlarını üretir.
+///
+/// [winnerUids] bracket sırasında olmalıdır (KARIŞTIRILMAZ); böylece eşleşmeler
+/// (0,1), (2,3), (4,5)… şeklinde ilerler ve ağaç yapısı korunur. Tek sayıda
+/// kazanan varsa son kişi bir bye maçı alarak otomatik tur atlar.
+///
+/// Dönen her Map doğrudan `tournaments/{id}/matches` belgesine yazılabilir.
+/// `round` kullanıcıya gösterilen etiket (ör. 'Final'), `roundNumber` ise
+/// sayısal tur ([nextRound])'dur.
+/// [twoLegged] true ise her gerçek eşleşme için iki ayak (ev/deplasman) üretilir
+/// (Şampiyonlar Ligi eleme aşaması); bye eşleşmeleri tek maçtır.
+List<Map<String, dynamic>> generateNextKnockoutRound({
+  required List<String> winnerUids,
+  required Map<String, String> uidToName,
+  required int nextRound,
+  bool twoLegged = false,
+}) {
+  if (winnerUids.length < 2) return const [];
+
+  final roundName = _knockoutRoundName(_nextPowerOfTwo(winnerUids.length));
+  // Sonraki turun maçları mevcut turlardan sonra sıralansın diye order ofseti.
+  final orderBase = nextRound * 1000;
+
+  final matches = <Map<String, dynamic>>[];
+  var order = 0;
+  for (var i = 0; i < winnerUids.length; i += 2) {
+    if (i + 1 < winnerUids.length) {
+      final homeUid = winnerUids[i];
+      final awayUid = winnerUids[i + 1];
+      final homeName = uidToName[homeUid] ?? 'Oyuncu';
+      final awayName = uidToName[awayUid] ?? 'Oyuncu';
+      // 1. ayak.
+      matches.add(_koMap(
+        homeUid: homeUid,
+        homeName: homeName,
+        awayUid: awayUid,
+        awayName: awayName,
+        isBye: false,
+        roundNumber: nextRound,
+        order: orderBase + order++,
+        roundName: roundName,
+        leg: 1,
+      ));
+      // 2. ayak (yalnızca iki ayaklıysa): ev/deplasman değişir.
+      if (twoLegged) {
+        matches.add(_koMap(
+          homeUid: awayUid,
+          homeName: awayName,
+          awayUid: homeUid,
+          awayName: homeName,
+          isBye: false,
+          roundNumber: nextRound,
+          order: orderBase + order++,
+          roundName: roundName,
+          leg: 2,
+        ));
+      }
+    } else {
+      // Tek kalan son kişi bye alır (tek maç).
+      matches.add(_koMap(
+        homeUid: winnerUids[i],
+        homeName: uidToName[winnerUids[i]] ?? 'Oyuncu',
+        awayUid: kByeUid,
+        awayName: 'Bye',
+        isBye: true,
+        roundNumber: nextRound,
+        order: orderBase + order++,
+        roundName: roundName,
+        leg: 1,
+      ));
+    }
   }
   return matches;
 }
@@ -251,6 +342,7 @@ List<GeneratedMatch> generateGroupFixtures(
           awayUid: pair.$2.uid,
           awayName: pair.$2.username,
           stage: 'group',
+          phase: 'group',
           group: label,
         ));
       }
@@ -259,27 +351,157 @@ List<GeneratedMatch> generateGroupFixtures(
   return matches;
 }
 
-/// Gruplardan çıkan (seeding'e göre sıralı) oyunculardan eleme eşleşmeleri.
+/// Tek bir eleme maçı için Firestore'a yazılabilir Map üretir (ortak şablon).
+Map<String, dynamic> _koMap({
+  required String homeUid,
+  required String homeName,
+  required String awayUid,
+  required String awayName,
+  required bool isBye,
+  required int roundNumber,
+  required int order,
+  required String roundName,
+  int leg = 1,
+}) =>
+    {
+      'round': roundName,
+      'roundNumber': roundNumber,
+      'order': order,
+      'homeUid': homeUid,
+      'homeName': homeName,
+      'awayUid': awayUid,
+      'awayName': awayName,
+      'homeScore': null,
+      'awayScore': null,
+      'played': false,
+      'isBye': isBye,
+      'stage': 'knockout',
+      'phase': 'knockout',
+      'group': '',
+      'status': 'pending',
+      'leg': leg,
+    };
+
+/// Grup aşaması bittiğinde, grup birincileri ve ikincilerini ÇAPRAZ eşleştirerek
+/// ilk eleme turunu üretir.
 ///
-/// Çapraz eşleşme: 1. sıra vs son sıra, 2. sıra vs sondan bir önceki…
-/// Grup aşaması tamamlandığında çağrılır.
-List<GeneratedMatch> generateKnockoutFromGroups(List<Participant> seeded) {
-  if (seeded.length < 2) return const [];
-  final roundName = _knockoutRoundName(_nextPowerOfTwo(seeded.length));
-  final matches = <GeneratedMatch>[];
-  var order = 0;
-  for (var i = 0; i < seeded.length ~/ 2; i++) {
-    final home = seeded[i];
-    final away = seeded[seeded.length - 1 - i];
-    matches.add(GeneratedMatch(
-      round: roundName,
-      order: order++,
-      homeUid: home.uid,
-      homeName: home.username,
-      awayUid: away.uid,
-      awayName: away.username,
-      stage: 'knockout',
+/// [groupWinners] her grup için `[1.oyuncu_uid, 2.oyuncu_uid]` listesidir
+/// (grup etiketine göre sıralı: A, B, C…). Eşleşme deseni:
+/// - 2 grup:  A1-B2, B1-A2
+/// - 3 grup:  A1-B2, B1-C2, C1-A2  (döngüsel)
+/// - 4 grup:  A1-B2, C1-D2, B1-A2, D1-C2  (ikişerli çapraz)
+///
+/// Dönen Map'ler `roundNumber: startRound`, `phase: 'knockout'`,
+/// `status: 'pending'`, `isBye: false` taşır.
+List<Map<String, dynamic>> generateKnockoutFromGroups({
+  required List<List<String>> groupWinners,
+  required Map<String, String> uidToName,
+  required int startRound,
+}) {
+  // Yalnızca tam (1. + 2.) çıkan gruplar eşleşmeye katılır.
+  final valid = groupWinners.where((g) => g.length >= 2).toList();
+  final g = valid.length;
+  if (g == 0) return const [];
+
+  final pairs = <(String, String)>[]; // (homeUid, awayUid)
+  if (g.isEven) {
+    // İkişerli çapraz: önce her çiftin X1-Y2'si, sonra Y1-X2'si.
+    for (var i = 0; i < g; i += 2) {
+      pairs.add((valid[i][0], valid[i + 1][1]));
+    }
+    for (var i = 0; i < g; i += 2) {
+      pairs.add((valid[i + 1][0], valid[i][1]));
+    }
+  } else {
+    // Tek sayıda grup: döngüsel çapraz (g'nin 1.si vs (g+1)'in 2.si).
+    for (var i = 0; i < g; i++) {
+      pairs.add((valid[i][0], valid[(i + 1) % g][1]));
+    }
+  }
+
+  final roundName = _knockoutRoundName(_nextPowerOfTwo(pairs.length * 2));
+  final orderBase = startRound * 1000;
+  final matches = <Map<String, dynamic>>[];
+  for (var i = 0; i < pairs.length; i++) {
+    final (homeUid, awayUid) = pairs[i];
+    matches.add(_koMap(
+      homeUid: homeUid,
+      homeName: uidToName[homeUid] ?? 'Oyuncu',
+      awayUid: awayUid,
+      awayName: uidToName[awayUid] ?? 'Oyuncu',
+      isBye: false,
+      roundNumber: startRound,
+      order: orderBase + i,
+      roundName: roundName,
     ));
+  }
+  return matches;
+}
+
+/// Sıralı (seeded) bir oyuncu listesinden ÇAPRAZ eşleşmeli eleme turu üretir:
+/// 1. vs sonuncu, 2. vs sondan ikinci… Tek sayıda oyuncuda ortadaki bye alır.
+///
+/// Şampiyonlar Ligi lig fazından elemeye geçişte kullanılır. Eleme aşaması ÇİFT
+/// MAÇLIDIR (iki ayaklı): her gerçek eşleşme için 1. ayak (üst sıralı ev sahibi)
+/// ve 2. ayak (ev/deplasman değişir) üretilir. Bye eşleşmeleri tek maçtır.
+List<Map<String, dynamic>> generateKnockoutFromSeeds({
+  required List<String> seedUids,
+  required Map<String, String> uidToName,
+  required int startRound,
+}) {
+  final q = seedUids.length;
+  if (q < 2) return const [];
+
+  final roundName = _knockoutRoundName(_nextPowerOfTwo(q));
+  final orderBase = startRound * 1000;
+  final matches = <Map<String, dynamic>>[];
+  var order = 0;
+  for (var i = 0; i * 2 < q; i++) {
+    final awayIdx = q - 1 - i;
+    if (awayIdx > i) {
+      final homeUid = seedUids[i];
+      final awayUid = seedUids[awayIdx];
+      final homeName = uidToName[homeUid] ?? 'Oyuncu';
+      final awayName = uidToName[awayUid] ?? 'Oyuncu';
+      // 1. ayak: üst sıralı (seed) oyuncu ev sahibi.
+      matches.add(_koMap(
+        homeUid: homeUid,
+        homeName: homeName,
+        awayUid: awayUid,
+        awayName: awayName,
+        isBye: false,
+        roundNumber: startRound,
+        order: orderBase + order++,
+        roundName: roundName,
+        leg: 1,
+      ));
+      // 2. ayak: ev/deplasman değişir.
+      matches.add(_koMap(
+        homeUid: awayUid,
+        homeName: awayName,
+        awayUid: homeUid,
+        awayName: homeName,
+        isBye: false,
+        roundNumber: startRound,
+        order: orderBase + order++,
+        roundName: roundName,
+        leg: 2,
+      ));
+    } else if (awayIdx == i) {
+      // Ortadaki oyuncu (tek sayı) bye alır (tek maç).
+      final homeUid = seedUids[i];
+      matches.add(_koMap(
+        homeUid: homeUid,
+        homeName: uidToName[homeUid] ?? 'Oyuncu',
+        awayUid: kByeUid,
+        awayName: 'Bye',
+        isBye: true,
+        roundNumber: startRound,
+        order: orderBase + order++,
+        roundName: roundName,
+        leg: 1,
+      ));
+    }
   }
   return matches;
 }
@@ -319,6 +541,7 @@ List<GeneratedMatch> generateChampionsLeaguePhaseFixtures(
         awayUid: pair.$2.uid,
         awayName: pair.$2.username,
         stage: 'league',
+        phase: 'league',
       ));
     }
   }

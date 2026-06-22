@@ -4,9 +4,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../router/route_paths.dart';
 import '../../services/app_settings.dart';
+import '../../services/auth_service.dart';
 import '../../services/firebase_providers.dart';
 
-/// Ayarlar ekranı: tema (açık/koyu) anahtarı ve oturum kapatma.
+/// Ayarlar ekranı: tema (açık/koyu) anahtarı, gizlilik politikası, oturum
+/// kapatma ve hesap silme.
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -23,12 +25,7 @@ class SettingsScreen extends ConsumerWidget {
         padding: const EdgeInsets.all(16),
         children: [
           _SectionLabel('Görünüm'),
-          Container(
-            decoration: BoxDecoration(
-              color: scheme.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
-            ),
+          _Card(
             child: SwitchListTile(
               value: isDark,
               onChanged: (value) {
@@ -50,13 +47,20 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 24),
-          _SectionLabel('Hesap'),
-          Container(
-            decoration: BoxDecoration(
-              color: scheme.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
+
+          _SectionLabel('Genel'),
+          _Card(
+            child: ListTile(
+              leading: Icon(Icons.privacy_tip_outlined, color: scheme.primary),
+              title: const Text('Gizlilik Politikası'),
+              trailing: Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+              onTap: () => context.pushNamed(RoutePaths.privacyPolicyName),
             ),
+          ),
+          const SizedBox(height: 24),
+
+          _SectionLabel('Hesap'),
+          _Card(
             child: ListTile(
               leading: Icon(Icons.logout, color: scheme.error),
               title: Text(
@@ -67,6 +71,28 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
               onTap: () => _confirmSignOut(context, ref),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          _SectionLabel('Tehlikeli Bölge'),
+          _Card(
+            child: ListTile(
+              leading: Icon(Icons.delete_forever_outlined, color: scheme.error),
+              title: Text(
+                'Hesabı Sil',
+                style: TextStyle(
+                  color: scheme.error,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              subtitle: Text(
+                'Tüm verilerin kalıcı olarak silinir',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              onTap: () => _deleteAccountFlow(context, ref),
             ),
           ),
         ],
@@ -101,6 +127,167 @@ class SettingsScreen extends ConsumerWidget {
     if (context.mounted) {
       context.goNamed(RoutePaths.loginName);
     }
+  }
+
+  /// İki aşamalı hesap silme: önce uyarı onayı, sonra (e-posta hesaplarında)
+  /// şifre doğrulaması; ardından [AuthService.deleteAccount] çağrılır.
+  Future<void> _deleteAccountFlow(BuildContext context, WidgetRef ref) async {
+    // Aşama 1: emin misin? uyarısı.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final scheme = Theme.of(context).colorScheme;
+        return AlertDialog(
+          title: const Text('Emin misin?'),
+          content: const Text(
+            'Hesabını silersen tüm turnuva verilerin, istatistiklerin ve '
+            'rozetlerin kalıcı olarak silinir. Bu işlem geri alınamaz.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Vazgeç'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(
+                'Devam Et',
+                style: TextStyle(color: scheme.error),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) return;
+
+    // Sağlayıcıya göre şifre gerekli mi? (e-posta/şifre → evet)
+    final user = ref.read(firebaseAuthProvider).currentUser;
+    if (user == null) return;
+    final needsPassword =
+        user.providerData.map((p) => p.providerId).contains('password');
+
+    String? password;
+    if (needsPassword) {
+      if (!context.mounted) return;
+      // Aşama 2: şifre iste.
+      password = await showDialog<String>(
+        context: context,
+        builder: (_) => const _PasswordPromptDialog(),
+      );
+      if (password == null) return; // iptal edildi
+    }
+
+    if (!context.mounted) return;
+    // Silme sırasında engelleyici ilerleme göstergesi.
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      await ref.read(authServiceProvider).deleteAccount(password: password);
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // ilerleme göstergesini kapat
+      context.goNamed(RoutePaths.loginName);
+    } on AuthException catch (e) {
+      if (!context.mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hesap silinemedi, lütfen tekrar dene.')),
+      );
+    }
+  }
+}
+
+/// Hesap silme öncesi şifre doğrulama diyaloğu. Onaylanırsa girilen şifreyi,
+/// iptal edilirse `null` döndürür.
+class _PasswordPromptDialog extends StatefulWidget {
+  const _PasswordPromptDialog();
+
+  @override
+  State<_PasswordPromptDialog> createState() => _PasswordPromptDialogState();
+}
+
+class _PasswordPromptDialogState extends State<_PasswordPromptDialog> {
+  final TextEditingController _controller = TextEditingController();
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Text('Şifreni Gir'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Güvenlik için hesabını silmeden önce şifreni doğrula.',
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _controller,
+            obscureText: _obscure,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: 'Şifre',
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                ),
+                onPressed: () => setState(() => _obscure = !_obscure),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Vazgeç'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: Text(
+            'Hesabı Sil',
+            style: TextStyle(color: scheme.error),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Tutarlı kart sarmalayıcı (kenarlık + köşe + yüzey rengi).
+class _Card extends StatelessWidget {
+  const _Card({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
+      ),
+      child: child,
+    );
   }
 }
 

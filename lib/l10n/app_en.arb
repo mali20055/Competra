@@ -1,0 +1,60 @@
+{
+  "@@locale": "en",
+
+  "appName": "Competra",
+  "@appName": { "description": "The application name" },
+
+  "login": "Log In",
+  "@login": { "description": "Login button / screen title" },
+  "register": "Register",
+  "@register": { "description": "Register button / screen title" },
+  "continueAsGuest": "Continue as Guest",
+  "@continueAsGuest": { "description": "Guest sign-in option" },
+
+  "createTournament": "Create Tournament",
+  "@createTournament": { "description": "Create tournament action" },
+  "joinTournament": "Join Tournament",
+  "@joinTournament": { "description": "Join tournament action" },
+
+  "home": "Home",
+  "@home": { "description": "Home tab" },
+  "tournaments": "Tournaments",
+  "@tournaments": { "description": "Tournaments tab/section" },
+  "wheel": "Wheel",
+  "@wheel": { "description": "Wheel tab" },
+  "friends": "Friends",
+  "@friends": { "description": "Friends tab" },
+  "profile": "Profile",
+  "@profile": { "description": "Profile tab" },
+
+  "standings": "Standings",
+  "@standings": { "description": "Standings table title" },
+  "fixtures": "Fixtures",
+  "@fixtures": { "description": "Fixtures list title" },
+  "statistics": "Statistics",
+  "@statistics": { "description": "Statistics section title" },
+
+  "save": "Save",
+  "@save": { "description": "Save action" },
+  "cancel": "Cancel",
+  "@cancel": { "description": "Cancel action" },
+  "confirm": "Confirm",
+  "@confirm": { "description": "Confirm action" },
+  "delete": "Delete",
+  "@delete": { "description": "Delete action" },
+
+  "errorGeneric": "Something went wrong. Please try again.",
+  "@errorGeneric": { "description": "Generic error message" },
+  "errorNetwork": "No internet connection.",
+  "@errorNetwork": { "description": "Network error message" },
+
+  "tournamentCompleted": "Tournament completed",
+  "@tournamentCompleted": { "description": "Tournament finished message" },
+  "champion": "Champion",
+  "@champion": { "description": "Champion label" },
+
+  "noDataYet": "No data yet",
+  "@noDataYet": { "description": "Empty state message" },
+  "loading": "Loading...",
+  "@loading": { "description": "Loading indicator label" }
+}

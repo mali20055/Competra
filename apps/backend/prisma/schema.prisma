@@ -1,0 +1,175 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum TournamentStatus {
+  OPEN      // Lobby is open, waiting for participants
+  LIVE      // Tournament is in progress
+  COMPLETED // Tournament has finished
+}
+
+enum TournamentMode {
+  LEAGUE  // Round-robin format
+  BRACKET // Single/Double elimination
+  GROUP   // Group stage + knockout
+}
+
+enum ParticipantStatus {
+  CONFIRMED // Slot is filled and confirmed
+  PENDING   // Invited but not yet accepted
+  OPEN      // Slot is empty, available for joining
+}
+
+enum MatchStatus {
+  PENDING   // Match not yet started
+  LIVE      // Match in progress
+  COMPLETED // Match finished
+}
+
+enum FriendshipStatus {
+  PENDING  // Friend request sent
+  ACCEPTED // Friendship confirmed
+}
+
+// ============================================================================
+// MODELS
+// ============================================================================
+
+/// User model - Core user entity with authentication fields
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  email         String   @unique
+  password_hash String
+  avatar        String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  // Relations
+  tournaments_created  Tournament[]
+  participations       Participant[]
+  friendships_sent     Friendship[]  @relation("Requester")
+  friendships_received Friendship[]  @relation("Receiver")
+
+  @@index([email])
+  @@index([username])
+  @@map("users")
+}
+
+/// Tournament model - Core tournament entity
+model Tournament {
+  id         String           @id @default(cuid())
+  code       String           @unique @db.Char(4)
+  name       String
+  status     TournamentStatus @default(OPEN)
+  mode       TournamentMode
+  config     Json             @default("{}")
+  created_by String
+  created_at DateTime         @default(now())
+  updated_at DateTime         @updatedAt
+
+  // Relations
+  creator      User          @relation(fields: [created_by], references: [id], onDelete: Cascade)
+  participants Participant[]
+  matches      Match[]
+
+  @@index([code])
+  @@index([status])
+  @@index([created_by])
+  @@map("tournaments")
+}
+
+/// Participant model - Links users to tournaments (supports guests)
+model Participant {
+  id            String            @id @default(cuid())
+  tournament_id String
+  user_id       String?           // Nullable for guest participants
+  nickname      String
+  status        ParticipantStatus @default(OPEN)
+  is_ready      Boolean           @default(false)
+  slot_order    Int               // Order of the slot in the lobby
+  created_at    DateTime          @default(now())
+  updated_at    DateTime          @updatedAt
+
+  // Relations
+  tournament   Tournament @relation(fields: [tournament_id], references: [id], onDelete: Cascade)
+  user         User?      @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  home_matches Match[]    @relation("HomeParticipant")
+  away_matches Match[]    @relation("AwayParticipant")
+
+  @@unique([tournament_id, slot_order])
+  @@unique([tournament_id, user_id])
+  @@index([tournament_id])
+  @@index([user_id])
+  @@map("participants")
+}
+
+/// Match model - Individual match within a tournament
+model Match {
+  id                  String      @id @default(cuid())
+  tournament_id       String
+  home_participant_id String
+  away_participant_id String
+  score_home          Int?
+  score_away          Int?
+  status              MatchStatus @default(PENDING)
+  round               Int         // Round number (1, 2, 3...)
+  match_order         Int         // Order within the round
+  created_at          DateTime    @default(now())
+  updated_at          DateTime    @updatedAt
+
+  // Relations
+  tournament       Tournament  @relation(fields: [tournament_id], references: [id], onDelete: Cascade)
+  home_participant Participant @relation("HomeParticipant", fields: [home_participant_id], references: [id], onDelete: Cascade)
+  away_participant Participant @relation("AwayParticipant", fields: [away_participant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tournament_id, round, match_order])
+  @@index([tournament_id])
+  @@index([status])
+  @@map("matches")
+}
+
+/// Friendship model - Social connections between users
+model Friendship {
+  id           String           @id @default(cuid())
+  requester_id String
+  receiver_id  String
+  status       FriendshipStatus @default(PENDING)
+  created_at   DateTime         @default(now())
+  updated_at   DateTime         @updatedAt
+
+  // Relations
+  requester User @relation("Requester", fields: [requester_id], references: [id], onDelete: Cascade)
+  receiver  User @relation("Receiver", fields: [receiver_id], references: [id], onDelete: Cascade)
+
+  @@unique([requester_id, receiver_id])
+  @@index([requester_id])
+  @@index([receiver_id])
+  @@map("friendships")
+}
+
+/// IdempotencyKey model - For preventing duplicate operations
+model IdempotencyKey {
+  id         String   @id @default(cuid())
+  key        String   @unique
+  user_id    String?
+  response   Json?
+  created_at DateTime @default(now())
+  expires_at DateTime
+
+  @@index([key])
+  @@index([expires_at])
+  @@map("idempotency_keys")
+}

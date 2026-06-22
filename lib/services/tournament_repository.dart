@@ -13,7 +13,25 @@ class TournamentNotFoundException implements Exception {
   const TournamentNotFoundException();
 }
 
+/// Turnuva katılıma kapalı olduğunda (zaten başlamış / tamamlanmış) fırlatılır.
+class TournamentJoinClosedException implements Exception {
+  const TournamentJoinClosedException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Turnuva belgeleri üzerinde okuma/yazma işlemleri.
+///
+/// NOT: Maç tamamlandıktan sonraki tüm sunucu mantığı (oyuncu/katılımcı
+/// istatistikleri, hat-trick rozeti, şampiyon belirleme, tur ilerletme, arkadaş
+/// grubu istatistikleri, rozet/unvan türetimi) artık Cloud Functions tarafında
+/// (`functions/src/index.ts`, `onMatchWritten`) yapılır. İstemci yalnızca maç
+/// skorunu yazar; bu hem hile yüzeyini kapatır hem de Mod B/C'de admin olmayan
+/// oyuncu son skoru girdiğinde sonraki turun oluşturulamaması sorununu çözer
+/// (maçları artık admin SDK üretir, güvenlik kuralları engellemez).
 class TournamentRepository {
   TournamentRepository(this._firestore, this._auth);
 
@@ -92,6 +110,24 @@ class TournamentRepository {
     }
 
     final doc = query.docs.first;
+
+    // Turnuva yalnızca 'waiting' (lobi) durumundayken yeni katılıma açıktır.
+    final status = (doc.data()['status'] as String?) ?? 'active';
+    if (status != 'waiting') {
+      switch (status) {
+        case 'active':
+          throw const TournamentJoinClosedException(
+            'Turnuva zaten başlamış, katılamazsın',
+          );
+        case 'completed':
+          throw const TournamentJoinClosedException('Turnuva tamamlanmış');
+        default:
+          throw const TournamentJoinClosedException(
+            'Turnuvaya katılım kapalı',
+          );
+      }
+    }
+
     final user = _auth.currentUser;
     if (user != null) {
       final participantIds =
@@ -133,27 +169,145 @@ class TournamentRepository {
     batch.update(_tournaments.doc(tournamentId), {
       'status': 'active',
       'startedAt': FieldValue.serverTimestamp(),
+      // Çok aşamalı formatlarda başlangıç fazı; eleme tur ilerletme için tur 1.
+      'currentPhase': _initialPhaseFor(format),
+      'currentRound': 1,
     });
 
     await batch.commit();
   }
 
-  /// Bir maçın skorunu günceller (her iki tarafın golü).
+  /// Formata göre turnuvanın başlangıç fazı.
+  /// Grup+eleme → 'group', diğer hepsi (lig, eleme, ŞL lig fazı) → ilk fazları.
+  static String _initialPhaseFor(String format) {
+    switch (format) {
+      case 'knockout':
+        return 'knockout';
+      case 'groupKnockout':
+      case 'groupElimination':
+        return 'group';
+      case 'championsLeague':
+      case 'league':
+      default:
+        return 'league';
+    }
+  }
+
+  /// Bir maçın skorunu yazar ve maçı 'completed' yapar.
+  ///
+  /// İstemci YALNIZCA skoru ve durumu yazar. İstatistik işleme (turnuva
+  /// katılımcı + kullanıcı istatistikleri, hat-trick rozeti), şampiyon belirleme,
+  /// tur ilerletme ve arkadaş grubu istatistikleri Cloud Functions tarafından
+  /// (`onMatchWritten` tetikleyicisi) sunucuda yapılır. Bu sayede aynı maç
+  /// tekrar kaydedilse bile (skor düzeltme) istatistikler çift sayılmaz: sunucu
+  /// maça `statsApplied` damgası vurarak idempotentliği garanti eder.
   Future<void> updateMatchScore({
     required String tournamentId,
     required String matchId,
     required int homeScore,
     required int awayScore,
-  }) {
-    return _tournaments
-        .doc(tournamentId)
-        .collection('matches')
-        .doc(matchId)
-        .update({
+  }) async {
+    final matchRef =
+        _tournaments.doc(tournamentId).collection('matches').doc(matchId);
+    await matchRef.update({
       'homeScore': homeScore,
       'awayScore': awayScore,
       'played': true,
+      'status': 'completed',
     });
+  }
+
+  /// winnerEntry/doubleEntry modunda bir oyuncunun skor girişini kaydeder;
+  /// maç, karşı tarafın onayını (winnerEntry) veya ikinci girişini (doubleEntry)
+  /// beklemek üzere 'awaitingConfirmation' durumuna alınır.
+  ///
+  /// Skor henüz kesinleşmediği için `homeScore`/`awayScore` yazılmaz; yalnızca
+  /// `enteredHomeScore`/`enteredAwayScore` saklanır.
+  Future<void> submitScoreForConfirmation({
+    required String tournamentId,
+    required String matchId,
+    required String enteredBy,
+    required int homeScore,
+    required int awayScore,
+  }) async {
+    final matchRef =
+        _tournaments.doc(tournamentId).collection('matches').doc(matchId);
+
+    // Karşı oyuncuyu ve skoru gireni belirlemek için maçı çek.
+    final matchSnap = await matchRef.get();
+    final matchData = matchSnap.data() ?? const <String, dynamic>{};
+    final homeUid = (matchData['homeUid'] as String?) ?? '';
+    final awayUid = (matchData['awayUid'] as String?) ?? '';
+    final homeName = (matchData['homeName'] as String?) ?? 'Oyuncu';
+    final awayName = (matchData['awayName'] as String?) ?? 'Oyuncu';
+
+    // Skoru giren = enteredBy; bildirim karşı oyuncuya gider.
+    final enteredByName = enteredBy == homeUid ? homeName : awayName;
+    final opponentUid = enteredBy == homeUid ? awayUid : homeUid;
+
+    final batch = _firestore.batch();
+    batch.update(matchRef, {
+      'status': 'awaitingConfirmation',
+      'enteredBy': enteredBy,
+      'enteredHomeScore': homeScore,
+      'enteredAwayScore': awayScore,
+    });
+
+    if (opponentUid.isNotEmpty) {
+      final notifRef = _firestore.collection('notifications').doc();
+      batch.set(notifRef, {
+        'userId': opponentUid,
+        'type': 'matchConfirm',
+        'title': 'Skor Onayı Bekleniyor',
+        'message':
+            '$enteredByName skoru girdi: $homeScore-$awayScore. Onayla veya itiraz et!',
+        'tournamentId': tournamentId,
+        'matchId': matchId,
+        'read': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+  }
+
+  /// Bir maçı anlaşmazlık ('disputed') durumuna alır ve turnuva yöneticisine
+  /// `notifications` koleksiyonuna bir bildirim yazar. İşlem tek batch'tedir.
+  ///
+  /// [extra] alanları (ör. doubleEntry'de ikinci giriş) maç belgesine eklenir.
+  Future<void> markDisputed({
+    required String tournamentId,
+    required String matchId,
+    required String adminUid,
+    required String title,
+    required String message,
+    Map<String, dynamic> extra = const {},
+  }) async {
+    final batch = _firestore.batch();
+    final matchRef =
+        _tournaments.doc(tournamentId).collection('matches').doc(matchId);
+    batch.update(matchRef, {
+      'status': 'disputed',
+      ...extra,
+    });
+
+    // Yöneticiye bildirim — ancak anlaşmazlığı açan kişi yöneticinin kendisiyse
+    // (admin de oyuncuysa) kurallar kendine bildirimi engellediğinden atlanır.
+    if (adminUid.isNotEmpty && adminUid != _auth.currentUser?.uid) {
+      final notifRef = _firestore.collection('notifications').doc();
+      batch.set(notifRef, {
+        'userId': adminUid,
+        'type': 'matchConfirm',
+        'title': title,
+        'message': message,
+        'read': false,
+        'tournamentId': tournamentId,
+        'matchId': matchId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
   }
 
   /// Kullanıcının görünen adını Firestore'dan (yoksa makul varsayılan) çözer.

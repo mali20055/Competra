@@ -1,0 +1,1 @@
+ C:\\competra\\.dart_tool\\flutter_build\\4b507188e28e8737b06b71cbd07c1b30\\native_assets.json: 

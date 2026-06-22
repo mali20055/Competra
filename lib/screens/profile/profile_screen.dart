@@ -1,15 +1,14 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../models/badge_definitions.dart';
 import '../../models/tournament.dart';
 import '../../models/user_profile.dart';
 import '../../router/route_paths.dart';
 import '../../services/tournament_repository.dart';
 import '../../services/user_repository.dart';
-
-/// Bir rozet tanımı (kazanılmış olsun ya da olmasın katalogda yer alır).
-typedef _BadgeDef = ({String id, String label, IconData icon});
 
 /// Profil sekmesi.
 ///
@@ -18,16 +17,6 @@ typedef _BadgeDef = ({String id, String label, IconData icon});
 /// renkler tema üzerinden gelir.
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
-
-  /// Uygulamadaki tüm rozetlerin kataloğu.
-  static const List<_BadgeDef> _badgeCatalog = [
-    (id: 'first_win', label: 'İlk Galibiyet', icon: Icons.star),
-    (id: 'champion', label: 'Şampiyon', icon: Icons.emoji_events),
-    (id: 'hat_trick', label: 'Hat-trick', icon: Icons.sports_soccer),
-    (id: 'veteran', label: 'Veteran', icon: Icons.shield),
-    (id: 'social', label: 'Sosyal', icon: Icons.group),
-    (id: 'sharpshooter', label: 'Keskin Nişancı', icon: Icons.my_location),
-  ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -44,7 +33,7 @@ class ProfileScreen extends ConsumerWidget {
           if (profile == null) {
             return const _SignedOutView();
           }
-          return _ProfileView(profile: profile, badgeCatalog: _badgeCatalog);
+          return _ProfileView(profile: profile);
         },
       ),
     );
@@ -52,10 +41,9 @@ class ProfileScreen extends ConsumerWidget {
 }
 
 class _ProfileView extends ConsumerWidget {
-  const _ProfileView({required this.profile, required this.badgeCatalog});
+  const _ProfileView({required this.profile});
 
   final UserProfile profile;
-  final List<_BadgeDef> badgeCatalog;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -111,9 +99,17 @@ class _ProfileView extends ConsumerWidget {
                 const SizedBox(height: 20),
                 _StatsRow(profile: profile),
                 const SizedBox(height: 28),
+                _SectionTitle(icon: Icons.show_chart, title: 'Son Form'),
+                const SizedBox(height: 12),
+                const _FormChart(),
+                const SizedBox(height: 28),
+                _SectionTitle(icon: Icons.percent, title: 'Galibiyet Oranı'),
+                const SizedBox(height: 12),
+                _WinRateGauge(profile: profile),
+                const SizedBox(height: 28),
                 _SectionTitle(icon: Icons.workspace_premium, title: 'Rozetler'),
                 const SizedBox(height: 12),
-                _BadgeGrid(catalog: badgeCatalog, earned: profile.badges),
+                _BadgeGrid(earned: profile.badges),
                 const SizedBox(height: 28),
                 _SectionTitle(icon: Icons.history, title: 'Geçmiş Turnuvalar'),
                 const SizedBox(height: 12),
@@ -186,7 +182,23 @@ class _Header extends StatelessWidget {
                     errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                   ),
           ),
-          // Ayarlar ikonu.
+          // Profili düzenle ikonu (sol üst).
+          Positioned(
+            top: 8,
+            left: 8,
+            child: SafeArea(
+              child: Material(
+                color: scheme.surface.withValues(alpha: 0.85),
+                shape: const CircleBorder(),
+                child: IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  tooltip: 'Profili Düzenle',
+                  onPressed: () => context.pushNamed(RoutePaths.editProfileName),
+                ),
+              ),
+            ),
+          ),
+          // Ayarlar ikonu (sağ üst).
           Positioned(
             top: 8,
             right: 8,
@@ -327,11 +339,252 @@ class _Divider extends StatelessWidget {
   }
 }
 
-/// Rozet grid'i — kazanılanlar renkli, kazanılmayanlar soluk/gri.
-class _BadgeGrid extends StatelessWidget {
-  const _BadgeGrid({required this.catalog, required this.earned});
+// Form/oran grafiklerinde galibiyet/mağlubiyet/beraberlik için sabit, anlamsal
+// renkler (yeşil/kırmızı/amber) — veri görselleştirmesinde alışıldık kodlama.
+const Color _winColor = Color(0xFF2E9E5B);
+const Color _lossColor = Color(0xFFD64545);
+const Color _drawColor = Color(0xFFD9A21B);
 
-  final List<_BadgeDef> catalog;
+/// Son 10 maçın sonucunu renkli barlarla gösteren form grafiği.
+///
+/// Her bar bir maçtır: galibiyet yeşil, mağlubiyet kırmızı, beraberlik amber.
+/// Veri yoksa "Henüz maç oynanmadı" gösterilir.
+class _FormChart extends ConsumerWidget {
+  const _FormChart();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final resultsAsync = ref.watch(userRecentMatchesProvider);
+
+    Widget shell(Widget child) => Container(
+          height: 150,
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
+          ),
+          child: child,
+        );
+
+    return resultsAsync.when(
+      loading: () =>
+          shell(const Center(child: CircularProgressIndicator())),
+      error: (_, __) =>
+          shell(const _InlineEmpty(message: 'Form yüklenemedi.')),
+      data: (results) {
+        if (results.isEmpty) {
+          return shell(const _InlineEmpty(message: 'Henüz maç oynanmadı'));
+        }
+        return shell(
+          BarChart(
+            BarChartData(
+              alignment: BarChartAlignment.spaceAround,
+              maxY: 1.2,
+              minY: 0,
+              barTouchData: BarTouchData(enabled: false),
+              gridData: const FlGridData(show: false),
+              borderData: FlBorderData(show: false),
+              titlesData: FlTitlesData(
+                leftTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 22,
+                    getTitlesWidget: (value, meta) {
+                      final i = value.toInt();
+                      if (i < 0 || i >= results.length) {
+                        return const SizedBox.shrink();
+                      }
+                      final (letter, color) = switch (results[i].kind) {
+                        MatchResultKind.win => ('G', _winColor),
+                        MatchResultKind.loss => ('M', _lossColor),
+                        MatchResultKind.draw => ('B', _drawColor),
+                      };
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          letter,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: color,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              barGroups: [
+                for (var i = 0; i < results.length; i++)
+                  BarChartGroupData(
+                    x: i,
+                    barRods: [
+                      BarChartRodData(
+                        toY: 1,
+                        width: 16,
+                        borderRadius: BorderRadius.circular(4),
+                        color: switch (results[i].kind) {
+                          MatchResultKind.win => _winColor,
+                          MatchResultKind.loss => _lossColor,
+                          MatchResultKind.draw => _drawColor,
+                        },
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Galibiyet/mağlubiyet oranını gösteren dairesel (donut) gösterge.
+///
+/// Yeşil dilim galibiyetleri, kırmızı dilim mağlubiyetleri temsil eder; ortada
+/// galibiyet yüzdesi yazar.
+class _WinRateGauge extends StatelessWidget {
+  const _WinRateGauge({required this.profile});
+
+  final UserProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final wins = profile.totalWins;
+    final losses = profile.totalLosses;
+    final total = wins + losses;
+    final winPct = total > 0 ? ((wins / total) * 100).round() : 0;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 160,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                PieChart(
+                  PieChartData(
+                    sectionsSpace: 2,
+                    centerSpaceRadius: 52,
+                    startDegreeOffset: -90,
+                    sections: total == 0
+                        ? [
+                            PieChartSectionData(
+                              value: 1,
+                              color:
+                                  scheme.onSurfaceVariant.withValues(alpha: 0.2),
+                              radius: 18,
+                              showTitle: false,
+                            ),
+                          ]
+                        : [
+                            PieChartSectionData(
+                              value: wins.toDouble(),
+                              color: _winColor,
+                              radius: 18,
+                              showTitle: false,
+                            ),
+                            PieChartSectionData(
+                              value: losses.toDouble(),
+                              color: _lossColor,
+                              radius: 18,
+                              showTitle: false,
+                            ),
+                          ],
+                  ),
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      total == 0 ? '—' : '%$winPct',
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    Text(
+                      'Galibiyet',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _LegendDot(color: _winColor, label: 'Galibiyet ($wins)'),
+              const SizedBox(width: 20),
+              _LegendDot(color: _lossColor, label: 'Mağlubiyet ($losses)'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({required this.color, required this.label});
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Rozet grid'i — kazanılanlar renkli, kazanılmayanlar soluk (opacity 0.3).
+/// Tüm rozet kataloğu [BadgeDefinitions.all] üzerinden gösterilir.
+class _BadgeGrid extends StatelessWidget {
+  const _BadgeGrid({required this.earned});
+
   final Set<String> earned;
 
   @override
@@ -344,7 +597,7 @@ class _BadgeGrid extends StatelessWidget {
       crossAxisSpacing: 12,
       childAspectRatio: 0.95,
       children: [
-        for (final badge in catalog)
+        for (final badge in BadgeDefinitions.all)
           _BadgeTile(badge: badge, earned: earned.contains(badge.id)),
       ],
     );
@@ -354,17 +607,15 @@ class _BadgeGrid extends StatelessWidget {
 class _BadgeTile extends StatelessWidget {
   const _BadgeTile({required this.badge, required this.earned});
 
-  final _BadgeDef badge;
+  final BadgeDefinition badge;
   final bool earned;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final Color accent =
-        earned ? scheme.primary : scheme.onSurfaceVariant.withValues(alpha: 0.5);
 
-    return Container(
+    final tile = Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: earned
@@ -380,22 +631,138 @@ class _BadgeTile extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(badge.icon, size: 28, color: accent),
+          Icon(
+            badge.icon,
+            size: 28,
+            color: earned ? scheme.primary : scheme.onSurfaceVariant,
+          ),
           const SizedBox(height: 8),
           Text(
-            badge.label,
+            badge.name,
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.labelSmall?.copyWith(
-              color: earned ? scheme.onSurface : scheme.onSurfaceVariant,
+              color: scheme.onSurface,
               fontWeight: earned ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
         ],
       ),
     );
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _showBadgeDetail(context, badge, earned),
+        // Kazanılmamış rozetler soluk gösterilir.
+        child: earned ? tile : Opacity(opacity: 0.3, child: tile),
+      ),
+    );
   }
+}
+
+/// Bir rozete tıklanınca açılan alt sayfa: ikon + isim + açıklama.
+void _showBadgeDetail(
+  BuildContext context,
+  BadgeDefinition badge,
+  bool earned,
+) {
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Theme.of(context).colorScheme.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (context) {
+      final theme = Theme.of(context);
+      final scheme = theme.colorScheme;
+      final Color accent =
+          earned ? scheme.primary : scheme.onSurfaceVariant;
+
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: scheme.outline.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                width: 84,
+                height: 84,
+                decoration: BoxDecoration(
+                  color: earned
+                      ? scheme.primary.withValues(alpha: 0.12)
+                      : scheme.onSurfaceVariant.withValues(alpha: 0.08),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: earned
+                        ? scheme.primary.withValues(alpha: 0.4)
+                        : scheme.outline.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Icon(badge.icon, size: 40, color: accent),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                badge.name,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                badge.description,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: earned
+                      ? scheme.primary.withValues(alpha: 0.14)
+                      : scheme.onSurfaceVariant.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      earned ? Icons.check_circle : Icons.lock_outline,
+                      size: 16,
+                      color: accent,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      earned ? 'Kazanıldı' : 'Henüz kazanılmadı',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: accent,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _PastTournamentTile extends StatelessWidget {

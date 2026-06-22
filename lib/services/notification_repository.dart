@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/app_notification.dart';
@@ -13,8 +14,15 @@ class NotificationRepository {
   CollectionReference<Map<String, dynamic>> get _notifications =>
       _firestore.collection('notifications');
 
-  Future<void> markRead(String id) =>
-      _notifications.doc(id).update({'read': true});
+  /// Bildirimi okundu olarak işaretler. Kritik olmayan bir işlem olduğundan
+  /// hata durumunda kullanıcıya gösterilmez; yalnızca sessizce loglanır.
+  Future<void> markRead(String id) async {
+    try {
+      await _notifications.doc(id).update({'read': true});
+    } catch (e) {
+      debugPrint('Bildirim okundu olarak işaretlenemedi ($id): $e');
+    }
+  }
 }
 
 final notificationRepositoryProvider = Provider<NotificationRepository>(

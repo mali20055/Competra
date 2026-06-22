@@ -1,0 +1,1 @@
+ C:\\competra\\lib\\l10n\\app_localizations_en.dart C:\\competra\\lib\\l10n\\app_localizations_tr.dart C:\\competra\\lib\\l10n\\app_localizations.dart:  C:\\competra\\l10n.yaml C:\\competra\\lib\\l10n\\app_en.arb C:\\competra\\lib\\l10n\\app_tr.arb

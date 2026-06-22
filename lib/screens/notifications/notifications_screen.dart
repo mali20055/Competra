@@ -138,9 +138,11 @@ class _NotificationTile extends ConsumerWidget {
                         ),
                       ),
                     ],
-                    if (item.type == NotificationType.matchConfirm) ...[
+                    if (item.type == NotificationType.matchConfirm &&
+                        item.tournamentId != null &&
+                        item.tournamentId!.isNotEmpty) ...[
                       const SizedBox(height: 12),
-                      _MatchConfirmActions(item: item),
+                      _GoToTournamentButton(item: item),
                     ],
                   ],
                 ),
@@ -157,12 +159,32 @@ class _NotificationTile extends ConsumerWidget {
       await ref.read(notificationRepositoryProvider).markRead(item.id);
     }
     if (!context.mounted) return;
+    final tournamentId = item.tournamentId;
+    final hasTournament = tournamentId != null && tournamentId.isNotEmpty;
     switch (item.type) {
       case NotificationType.friendRequest:
         context.goNamed(RoutePaths.socialName);
       case NotificationType.tournamentInvite:
         context.goNamed(RoutePaths.joinTournamentName);
+      case NotificationType.tournamentComplete:
+        // Turnuva belliyse doğrudan kutlama/özet (wrapped) ekranına git.
+        if (hasTournament) {
+          context.goNamed(
+            RoutePaths.tournamentWrappedName,
+            pathParameters: {'id': tournamentId},
+          );
+        } else {
+          context.goNamed(RoutePaths.leaguesName);
+        }
       case NotificationType.matchConfirm:
+        // Onay/itiraz işlemi turnuva detay ekranında yapılır; bildirim yalnızca
+        // oraya yönlendirir.
+        if (hasTournament) {
+          context.goNamed(
+            RoutePaths.tournamentDetailName,
+            pathParameters: {'id': tournamentId},
+          );
+        }
       case NotificationType.generic:
         break;
     }
@@ -190,6 +212,12 @@ class _NotificationTile extends ConsumerWidget {
           title: 'Turnuva Daveti',
           fallbackMessage: 'Bir turnuvaya davet edildin.',
         );
+      case NotificationType.tournamentComplete:
+        return (
+          icon: Icons.emoji_events,
+          title: 'Turnuva Tamamlandı',
+          fallbackMessage: 'Bir turnuva tamamlandı.',
+        );
       case NotificationType.generic:
         return (
           icon: Icons.notifications_outlined,
@@ -200,55 +228,42 @@ class _NotificationTile extends ConsumerWidget {
   }
 }
 
-/// Maç onayı bildirimleri için Onayla / Reddet aksiyonları.
+/// Maç onayı bildirimleri için "Turnuvaya Git" aksiyonu.
 ///
-/// Şimdilik her iki işlem de bildirimi okundu olarak işaretler; gerçek maç
-/// onay/itiraz akışı skor giriş sistemiyle birlikte eklenecektir.
-class _MatchConfirmActions extends ConsumerWidget {
-  const _MatchConfirmActions({required this.item});
+/// Skor onay/itiraz işlemi artık turnuva detay ekranında yapıldığından, bildirim
+/// yalnızca ilgili turnuvaya yönlendirir (yalnızca `tournamentId` mevcutsa
+/// gösterilir).
+class _GoToTournamentButton extends ConsumerWidget {
+  const _GoToTournamentButton({required this.item});
 
   final AppNotification item;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: () => _resolve(ref, 'Skor onaylandı.'),
-            icon: const Icon(Icons.check, size: 18),
-            label: const Text('Onayla'),
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size.fromHeight(40),
-            ),
-          ),
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: () => _goToTournament(context, ref),
+        icon: const Icon(Icons.arrow_forward, size: 18),
+        label: const Text('Turnuvaya Git'),
+        style: ElevatedButton.styleFrom(
+          minimumSize: const Size.fromHeight(40),
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: () => _resolve(ref, 'Skor reddedildi.'),
-            icon: const Icon(Icons.close, size: 18),
-            label: const Text('Reddet'),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(40),
-              foregroundColor: scheme.error,
-              side: BorderSide(color: scheme.error.withValues(alpha: 0.5)),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  Future<void> _resolve(WidgetRef ref, String message) async {
-    await ref.read(notificationRepositoryProvider).markRead(item.id);
-    final context = ref.context;
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+  Future<void> _goToTournament(BuildContext context, WidgetRef ref) async {
+    final tournamentId = item.tournamentId;
+    if (tournamentId == null || tournamentId.isEmpty) return;
+    if (!item.read) {
+      await ref.read(notificationRepositoryProvider).markRead(item.id);
     }
+    if (!context.mounted) return;
+    context.goNamed(
+      RoutePaths.tournamentDetailName,
+      pathParameters: {'id': tournamentId},
+    );
   }
 }
 

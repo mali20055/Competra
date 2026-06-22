@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/wheel.dart';
@@ -28,7 +29,30 @@ class WheelRepository {
     return doc.id;
   }
 
-  Future<void> deleteWheel(String id) => _wheels.doc(id).delete();
+  Future<void> deleteWheel(String id) async {
+    try {
+      await _wheels.doc(id).delete();
+    } catch (e) {
+      debugPrint('Çark silinemedi ($id): $e');
+      rethrow;
+    }
+  }
+
+  /// Yeni bir çevirme sonucunu kaydeder: sonucu listenin başına ekler ve en
+  /// fazla 10 kayıt tutar (eskiler düşer).
+  Future<void> recordResult({
+    required String wheelId,
+    required String result,
+    required List<String> previous,
+  }) async {
+    final updated = [result, ...previous];
+    final capped = updated.length > 10 ? updated.sublist(0, 10) : updated;
+    try {
+      await _wheels.doc(wheelId).update({'lastResults': capped});
+    } catch (e) {
+      debugPrint('Çark sonucu kaydedilemedi ($wheelId): $e');
+    }
+  }
 }
 
 final wheelRepositoryProvider = Provider<WheelRepository>(

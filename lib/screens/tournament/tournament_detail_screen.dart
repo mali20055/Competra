@@ -1,10 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../models/tournament.dart';
+import '../../router/route_paths.dart';
 import '../../services/firebase_providers.dart';
 import '../../services/tournament_repository.dart';
+
+/// Turnuvayı sistem paylaşım sayfasıyla (WhatsApp vb.) davet metni olarak paylaşır.
+Future<void> _shareTournament(Tournament tournament) {
+  final text =
+      "Competra'da ${tournament.name} turnuvasına katıl! 🏆\n"
+      'Davet kodu: ${tournament.inviteCode}\n'
+      'Uygulamayı indir ve kodu gir!';
+  return SharePlus.instance.share(ShareParams(text: text));
+}
 
 /// Turnuva detay ekranı.
 ///
@@ -21,6 +33,18 @@ class TournamentDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tournamentAsync = ref.watch(tournamentStreamProvider(tournamentId));
+
+    // Turnuva 'completed' durumuna geçtiği anda güçlü titreşimle kutla.
+    ref.listen<AsyncValue<Tournament?>>(
+      tournamentStreamProvider(tournamentId),
+      (prev, next) {
+        final wasCompleted = prev?.asData?.value?.isCompleted ?? false;
+        final isCompleted = next.asData?.value?.isCompleted ?? false;
+        if (!wasCompleted && isCompleted) {
+          HapticFeedback.heavyImpact();
+        }
+      },
+    );
 
     return tournamentAsync.when(
       loading: () => const _MessageScaffold.loading(),
@@ -64,6 +88,20 @@ class _DetailView extends ConsumerWidget {
         appBar: AppBar(
           title: Text(tournament.name),
           actions: [
+            if (tournament.isCompleted)
+              IconButton(
+                icon: const Icon(Icons.celebration_outlined),
+                tooltip: 'Kutlama',
+                onPressed: () => context.pushNamed(
+                  RoutePaths.tournamentWrappedName,
+                  pathParameters: {'id': tournament.id},
+                ),
+              ),
+            IconButton(
+              icon: const Icon(Icons.share_outlined),
+              tooltip: 'Paylaş',
+              onPressed: () => _shareTournament(tournament),
+            ),
             IconButton(
               icon: const Icon(Icons.ios_share),
               tooltip: 'Davet Kodu',
@@ -81,6 +119,8 @@ class _DetailView extends ConsumerWidget {
         body: Column(
           children: [
             _InfoHeader(tournament: tournament),
+            if (tournament.note.trim().isNotEmpty)
+              _NoteCard(note: tournament.note.trim()),
             Expanded(
               child: matchesAsync.when(
                 loading: () =>
@@ -100,10 +140,13 @@ class _DetailView extends ConsumerWidget {
                   return TabBarView(
                     children: [
                       _FixtureTab(
-                        tournamentId: tournament.id,
+                        tournament: tournament,
                         matches: matches,
                       ),
-                      _StandingsTab(standings: standings),
+                      _StandingsTab(
+                        standings: standings,
+                        tiebreakerMode: tournament.tiebreakerMode,
+                      ),
                       _StatsTab(scorers: scorers),
                     ],
                   );
@@ -223,7 +266,16 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
     final enoughPlayers = t.participants.length >= 2;
 
     return Scaffold(
-      appBar: AppBar(title: Text(t.name)),
+      appBar: AppBar(
+        title: Text(t.name),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share_outlined),
+            tooltip: 'Paylaş',
+            onPressed: () => _shareTournament(t),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [
@@ -271,6 +323,15 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
                   ),
                   const SizedBox(height: 16),
                   _InviteCodeCard(code: t.inviteCode),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _shareTournament(t),
+                      icon: const Icon(Icons.share_outlined, size: 18),
+                      label: const Text('Arkadaşlarını Davet Et'),
+                    ),
+                  ),
                   const SizedBox(height: 24),
                   Text(
                     'Katılımcılar (${t.participants.length})',
@@ -575,56 +636,287 @@ class _Chip extends StatelessWidget {
 // Sekme 1 — Fikstür
 // ---------------------------------------------------------------------------
 
-class _FixtureTab extends StatelessWidget {
-  const _FixtureTab({required this.tournamentId, required this.matches});
+class _FixtureTab extends ConsumerWidget {
+  const _FixtureTab({required this.tournament, required this.matches});
 
-  final String tournamentId;
+  final Tournament tournament;
   final List<TournamentMatch> matches;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (matches.isEmpty) {
       return const _EmptyState(
         icon: Icons.sports_soccer_outlined,
         message: 'Henüz fikstür oluşturulmadı.',
       );
     }
-    return ListView.separated(
+
+    final uid = ref.watch(currentUserProvider)?.uid ?? '';
+
+    // Mod B (Kazanan Girer): rakibin girdiği ve benim onayımı bekleyen maçlar
+    // için üstte onayla/itiraz banner'ı gösterilir.
+    final pendingConfirmations = tournament.isWinnerEntryScoring
+        ? matches
+            .where((m) =>
+                m.isAwaitingConfirmation &&
+                m.enteredBy.isNotEmpty &&
+                m.enteredBy != uid &&
+                (m.homeUid == uid || m.awayUid == uid))
+            .toList()
+        : const <TournamentMatch>[];
+
+    // Çift maçlı (iki ayaklı) eleme eşleşmelerini tek karta grupla; geri kalan
+    // maçlar tekil kart olarak gösterilir.
+    final items = _buildFixtureItems();
+
+    return ListView(
       padding: const EdgeInsets.all(16),
-      itemCount: matches.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) => _MatchCard(
-        tournamentId: tournamentId,
-        match: matches[index],
-      ),
+      children: [
+        for (final m in pendingConfirmations) ...[
+          _ConfirmationBanner(tournament: tournament, match: m),
+          const SizedBox(height: 12),
+        ],
+        for (var i = 0; i < items.length; i++) ...[
+          items[i],
+          if (i != items.length - 1) const SizedBox(height: 12),
+        ],
+      ],
     );
+  }
+
+  /// Maçları görüntü öğelerine dönüştürür. Aynı turdaki, aynı oyuncu çiftine ait
+  /// iki eleme maçı (1. ve 2. ayak) tek bir [_TwoLeggedTieCard]'ta birleştirilir.
+  List<Widget> _buildFixtureItems() {
+    final items = <Widget>[];
+    final consumed = <String>{};
+    for (final m in matches) {
+      if (consumed.contains(m.id)) continue;
+
+      TournamentMatch? partner;
+      if (m.phase == 'knockout' && !m.isBye) {
+        for (final other in matches) {
+          if (other.id == m.id || consumed.contains(other.id)) continue;
+          if (other.phase == 'knockout' &&
+              !other.isBye &&
+              other.roundNumber == m.roundNumber &&
+              _samePair(m, other)) {
+            partner = other;
+            break;
+          }
+        }
+      }
+
+      if (partner != null) {
+        final leg1 = m.leg <= partner.leg ? m : partner;
+        final leg2 = identical(leg1, m) ? partner : m;
+        consumed.add(leg1.id);
+        consumed.add(leg2.id);
+        items.add(
+          _TwoLeggedTieCard(tournament: tournament, leg1: leg1, leg2: leg2),
+        );
+      } else {
+        consumed.add(m.id);
+        items.add(_MatchCard(tournament: tournament, match: m));
+      }
+    }
+    return items;
+  }
+
+  /// İki maç aynı oyuncu çiftini (sıra önemsiz) içeriyor mu?
+  static bool _samePair(TournamentMatch a, TournamentMatch b) {
+    return (a.homeUid == b.homeUid && a.awayUid == b.awayUid) ||
+        (a.homeUid == b.awayUid && a.awayUid == b.homeUid);
   }
 }
 
-/// Tek bir maç kartı: oyuncular, skor (oynandıysa) ve "Skoru Gir" butonu.
-class _MatchCard extends StatelessWidget {
-  const _MatchCard({required this.tournamentId, required this.match});
+/// Mod B onay banner'ı: rakip skoru girdiğinde diğer oyuncuya gösterilir.
+class _ConfirmationBanner extends ConsumerStatefulWidget {
+  const _ConfirmationBanner({required this.tournament, required this.match});
 
-  final String tournamentId;
+  final Tournament tournament;
   final TournamentMatch match;
+
+  @override
+  ConsumerState<_ConfirmationBanner> createState() =>
+      _ConfirmationBannerState();
+}
+
+class _ConfirmationBannerState extends ConsumerState<_ConfirmationBanner> {
+  bool _busy = false;
+
+  String get _entererName => widget.match.enteredBy == widget.match.homeUid
+      ? widget.match.homeName
+      : widget.match.awayName;
+
+  Future<void> _confirm() async {
+    if (_busy) return;
+    final m = widget.match;
+    final home = m.enteredHomeScore;
+    final away = m.enteredAwayScore;
+    if (home == null || away == null) return;
+    setState(() => _busy = true);
+    try {
+      await ref.read(tournamentRepositoryProvider).updateMatchScore(
+            tournamentId: widget.tournament.id,
+            matchId: m.id,
+            homeScore: home,
+            awayScore: away,
+          );
+    } catch (_) {
+      if (mounted) {
+        setState(() => _busy = false);
+        _showError('Onaylanamadı. Lütfen tekrar deneyin.');
+      }
+    }
+  }
+
+  Future<void> _dispute() async {
+    if (_busy) return;
+    final m = widget.match;
+    final uid = ref.read(currentUserProvider)?.uid ?? '';
+    final disputerName = uid == m.homeUid ? m.homeName : m.awayName;
+    setState(() => _busy = true);
+    try {
+      await ref.read(tournamentRepositoryProvider).markDisputed(
+            tournamentId: widget.tournament.id,
+            matchId: m.id,
+            adminUid: widget.tournament.ownerId,
+            title: 'Skor İtirazı',
+            message: '$_entererName, ${m.homeName} - ${m.awayName} maçında '
+                '${m.enteredHomeScore}-${m.enteredAwayScore} skorunu girdi; '
+                '$disputerName itiraz etti.',
+          );
+    } catch (_) {
+      if (mounted) {
+        setState(() => _busy = false);
+        _showError('İtiraz gönderilemedi. Lütfen tekrar deneyin.');
+      }
+    }
+  }
+
+  void _showError(String message) {
+    final scheme = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: TextStyle(color: scheme.onError)),
+        backgroundColor: scheme.error,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final m = widget.match;
 
     return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.primary.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.notifications_active_outlined,
+                  size: 18, color: scheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$_entererName skoru girdi: '
+                  '${m.enteredHomeScore}-${m.enteredAwayScore}. '
+                  'Onayla veya itiraz et.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _busy ? null : _dispute,
+                  icon: const Icon(Icons.flag_outlined, size: 18),
+                  label: const Text('İtiraz Et'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _busy ? null : _confirm,
+                  icon: const Icon(Icons.check, size: 18),
+                  label: const Text('Onayla'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tek bir maç kartı. Skor giriş aksiyonu, turnuvanın skor giriş moduna ve
+/// kullanıcının rolüne (yönetici / ev sahibi / deplasman / izleyici) göre
+/// belirlenir. Anlaşmazlıklı maçlar kırmızı vurguyla gösterilir ve yönetici
+/// karta dokununca çözüm diyaloğu açılır.
+class _MatchCard extends ConsumerWidget {
+  const _MatchCard({
+    required this.tournament,
+    required this.match,
+    this.legLabel,
+  });
+
+  final Tournament tournament;
+  final TournamentMatch match;
+
+  /// Çift maçlı eşleşmede ayak etiketi ('1. Maç' / '2. Maç'). Verilirse kart
+  /// başlığında tur adı yerine bu gösterilir.
+  final String? legLabel;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    final uid = ref.watch(currentUserProvider)?.uid ?? '';
+    final isAdmin = uid == tournament.ownerId;
+    final isHome = uid == match.homeUid;
+    final isAway = uid == match.awayUid;
+    final isParticipant = isHome || isAway;
+    final disputed = match.isDisputed;
+
+    final action = _buildAction(
+      context,
+      uid: uid,
+      isAdmin: isAdmin,
+      isParticipant: isParticipant,
+    );
+
+    final card = Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: scheme.surface,
+        color: disputed ? scheme.error.withValues(alpha: 0.06) : scheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
+        border: Border.all(
+          color: disputed
+              ? scheme.error.withValues(alpha: 0.6)
+              : scheme.outline.withValues(alpha: 0.2),
+          width: disputed ? 1.5 : 1,
+        ),
       ),
       child: Column(
         children: [
-          if (match.round.isNotEmpty) ...[
+          if ((legLabel ?? match.round).isNotEmpty) ...[
             Text(
-              match.round,
+              legLabel ?? match.round,
               style: theme.textTheme.labelSmall?.copyWith(
                 color: scheme.onSurfaceVariant,
                 fontWeight: FontWeight.w600,
@@ -635,12 +927,23 @@ class _MatchCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  match.homeName,
-                  textAlign: TextAlign.end,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        match.homeName,
+                        textAlign: TextAlign.end,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _PlayerAvatar(name: match.homeName),
+                  ],
                 ),
               ),
               Padding(
@@ -648,42 +951,233 @@ class _MatchCard extends StatelessWidget {
                 child: _ScoreBadge(match: match),
               ),
               Expanded(
-                child: Text(
-                  match.awayName,
-                  textAlign: TextAlign.start,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Row(
+                  children: [
+                    _PlayerAvatar(name: match.awayName),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        match.awayName,
+                        textAlign: TextAlign.start,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () => _openScoreEntry(context),
-              icon: Icon(
-                match.isPlayed ? Icons.edit_outlined : Icons.add_circle_outline,
-                size: 18,
-              ),
-              label: Text(match.isPlayed ? 'Skoru Düzenle' : 'Skoru Gir'),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(44),
-              ),
-            ),
-          ),
+          if (match.isAwaitingConfirmation || disputed) ...[
+            const SizedBox(height: 10),
+            _StatusChip(match: match),
+          ],
+          if (action != null) ...[
+            const SizedBox(height: 14),
+            action,
+          ],
         ],
+      ),
+    );
+
+    // Yönetici, anlaşmazlıklı maça dokununca çözüm diyaloğunu açar.
+    if (disputed && isAdmin) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _openDisputeResolution(context),
+        child: card,
+      );
+    }
+    return card;
+  }
+
+  /// Karttaki skor aksiyonunu (buton/durum metni) role ve moda göre üretir.
+  Widget? _buildAction(
+    BuildContext context, {
+    required String uid,
+    required bool isAdmin,
+    required bool isParticipant,
+  }) {
+    // Bye maçları otomatik sonuçlanır.
+    if (match.isBye) return null;
+
+    // Tamamlanmış maçı yalnızca yönetici düzenleyebilir.
+    if (match.isFinal) {
+      if (isAdmin) {
+        return _entryButton(
+          context,
+          label: 'Skoru Düzenle',
+          icon: Icons.edit_outlined,
+          directComplete: true,
+        );
+      }
+      return null;
+    }
+
+    // Anlaşmazlık: yönetici çözer, taraflar bilgilendirilir.
+    if (match.isDisputed) {
+      if (isAdmin) {
+        return _actionButton(
+          context,
+          label: 'Anlaşmazlığı Çöz',
+          icon: Icons.gavel_outlined,
+          onPressed: () => _openDisputeResolution(context),
+        );
+      }
+      return _statusText(context, 'İtiraz edildi. Yönetici inceliyor.');
+    }
+
+    // Mod A — Sadece Admin.
+    if (tournament.isAdminOnlyScoring) {
+      if (isAdmin) {
+        return _entryButton(
+          context,
+          label: 'Skoru Gir',
+          icon: Icons.add_circle_outline,
+          directComplete: true,
+        );
+      }
+      return null;
+    }
+
+    // Mod B / C — onay bekleyen ilk giriş yapılmış.
+    if (match.isAwaitingConfirmation) {
+      if (uid == match.enteredBy) {
+        return _statusText(
+          context,
+          tournament.isDoubleEntryScoring
+              ? 'Skorun girildi. Rakibin girişi bekleniyor.'
+              : 'Skorun girildi. Rakibin onayı bekleniyor.',
+        );
+      }
+      if (isParticipant && tournament.isDoubleEntryScoring) {
+        // Çift giriş: rakip kendi skorunu girer, karşılaştırılır.
+        return _entryButton(
+          context,
+          label: 'Skoru Gir',
+          icon: Icons.add_circle_outline,
+          directComplete: false,
+        );
+      }
+      // Mod B'de onay/itiraz üstteki banner üzerinden yapılır.
+      if (isParticipant) {
+        return _statusText(context, 'Onayın bekleniyor (yukarıdaki banner).');
+      }
+      return null;
+    }
+
+    // Henüz giriş yok (pending): taraflar skoru girebilir.
+    if (isParticipant) {
+      return _entryButton(
+        context,
+        label: 'Skoru Gir',
+        icon: Icons.add_circle_outline,
+        directComplete: false,
+      );
+    }
+    return null;
+  }
+
+  Widget _entryButton(
+    BuildContext context, {
+    required String label,
+    required IconData icon,
+    required bool directComplete,
+  }) {
+    return _actionButton(
+      context,
+      label: label,
+      icon: icon,
+      onPressed: () => showDialog<void>(
+        context: context,
+        builder: (_) => _ScoreEntryDialog(
+          tournament: tournament,
+          match: match,
+          directComplete: directComplete,
+        ),
       ),
     );
   }
 
-  void _openScoreEntry(BuildContext context) {
+  Widget _actionButton(
+    BuildContext context, {
+    required String label,
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(44),
+        ),
+      ),
+    );
+  }
+
+  Widget _statusText(BuildContext context, String text) {
+    final theme = Theme.of(context);
+    return Text(
+      text,
+      textAlign: TextAlign.center,
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+        fontStyle: FontStyle.italic,
+      ),
+    );
+  }
+
+  void _openDisputeResolution(BuildContext context) {
     showDialog<void>(
       context: context,
-      builder: (_) => _ScoreEntryDialog(
-        tournamentId: tournamentId,
+      builder: (_) => _DisputeResolutionDialog(
+        tournament: tournament,
         match: match,
+      ),
+    );
+  }
+}
+
+/// Maçın bekleme/anlaşmazlık durumunu gösteren küçük rozet.
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.match});
+
+  final TournamentMatch match;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final disputed = match.isDisputed;
+    final color = disputed ? scheme.error : scheme.tertiary;
+    final label = disputed ? 'Anlaşmazlık' : 'Onay bekliyor';
+    final icon = disputed ? Icons.warning_amber_rounded : Icons.hourglass_top;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -722,12 +1216,23 @@ class _ScoreBadge extends StatelessWidget {
   }
 }
 
-/// Skor giriş diyaloğu — her iki oyuncunun golünü alır ve Firestore'a yazar.
+/// Skor giriş diyaloğu. Davranış, turnuvanın skor giriş moduna göre değişir:
+///
+/// - [directComplete] true (Mod A yönetici girişi veya yönetici düzenlemesi):
+///   skor doğrudan kesinleşir ([TournamentRepository.updateMatchScore]).
+/// - Mod B (winnerEntry): giriş onay bekler.
+/// - Mod C (doubleEntry): ilk giriş onay bekler; ikinci giriş ilkiyle
+///   karşılaştırılır — uyuşursa kesinleşir, uyuşmazsa anlaşmazlık açılır.
 class _ScoreEntryDialog extends ConsumerStatefulWidget {
-  const _ScoreEntryDialog({required this.tournamentId, required this.match});
+  const _ScoreEntryDialog({
+    required this.tournament,
+    required this.match,
+    required this.directComplete,
+  });
 
-  final String tournamentId;
+  final Tournament tournament;
   final TournamentMatch match;
+  final bool directComplete;
 
   @override
   ConsumerState<_ScoreEntryDialog> createState() => _ScoreEntryDialogState();
@@ -741,6 +1246,7 @@ class _ScoreEntryDialogState extends ConsumerState<_ScoreEntryDialog> {
   @override
   void initState() {
     super.initState();
+    // Tamamlanmış maçı düzenlerken mevcut skor ön doldurulur; aksi halde boş.
     _home = TextEditingController(
       text: widget.match.homeScore?.toString() ?? '',
     );
@@ -761,56 +1267,133 @@ class _ScoreEntryDialogState extends ConsumerState<_ScoreEntryDialog> {
     final home = int.tryParse(_home.text.trim());
     final away = int.tryParse(_away.text.trim());
     if (home == null || away == null || home < 0 || away < 0) {
-      final scheme = Theme.of(context).colorScheme;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Lütfen geçerli skorlar girin.',
-            style: TextStyle(color: scheme.onError),
-          ),
-          backgroundColor: scheme.error,
-        ),
-      );
+      _showError('Lütfen geçerli skorlar girin.');
       return;
     }
 
     setState(() => _saving = true);
     try {
-      await ref.read(tournamentRepositoryProvider).updateMatchScore(
-            tournamentId: widget.tournamentId,
-            matchId: widget.match.id,
-            homeScore: home,
-            awayScore: away,
-          );
+      await _submit(home, away);
       if (mounted) Navigator.of(context).pop();
     } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);
-      final scheme = Theme.of(context).colorScheme;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Skor kaydedilemedi. Lütfen tekrar deneyin.',
-            style: TextStyle(color: scheme.onError),
-          ),
-          backgroundColor: scheme.error,
-        ),
+      _showError('Skor kaydedilemedi. Lütfen tekrar deneyin.');
+    }
+  }
+
+  /// Moda göre uygun repository akışını seçer.
+  Future<void> _submit(int home, int away) {
+    final repo = ref.read(tournamentRepositoryProvider);
+    final t = widget.tournament;
+    final m = widget.match;
+    final uid = ref.read(currentUserProvider)?.uid ?? '';
+
+    // Mod A veya yönetici düzenlemesi: doğrudan kesinleştir.
+    if (widget.directComplete || t.isAdminOnlyScoring) {
+      return repo.updateMatchScore(
+        tournamentId: t.id,
+        matchId: m.id,
+        homeScore: home,
+        awayScore: away,
       );
     }
+
+    // Mod B: tek giriş, onay bekler.
+    if (t.isWinnerEntryScoring) {
+      return repo.submitScoreForConfirmation(
+        tournamentId: t.id,
+        matchId: m.id,
+        enteredBy: uid,
+        homeScore: home,
+        awayScore: away,
+      );
+    }
+
+    // Mod C: çift giriş.
+    final isSecondEntry = m.isAwaitingConfirmation &&
+        m.enteredBy.isNotEmpty &&
+        m.enteredBy != uid;
+    if (!isSecondEntry) {
+      // İlk giriş.
+      return repo.submitScoreForConfirmation(
+        tournamentId: t.id,
+        matchId: m.id,
+        enteredBy: uid,
+        homeScore: home,
+        awayScore: away,
+      );
+    }
+
+    // İkinci giriş: ilk girişle karşılaştır.
+    if (m.enteredHomeScore == home && m.enteredAwayScore == away) {
+      // Uyuşuyor → kesinleştir.
+      return repo.updateMatchScore(
+        tournamentId: t.id,
+        matchId: m.id,
+        homeScore: home,
+        awayScore: away,
+      );
+    }
+
+    // Uyuşmuyor → anlaşmazlık (yöneticiye bildirim).
+    final firstByHome = m.enteredBy == m.homeUid;
+    final firstPair = '${m.enteredHomeScore}-${m.enteredAwayScore}';
+    final secondPair = '$home-$away';
+    final homeEntry = firstByHome ? firstPair : secondPair;
+    final awayEntry = firstByHome ? secondPair : firstPair;
+    return repo.markDisputed(
+      tournamentId: t.id,
+      matchId: m.id,
+      adminUid: t.ownerId,
+      title: 'Skor Uyuşmazlığı',
+      message: 'Uyuşmazlık: ${m.homeName} - ${m.awayName} maçında skorlar '
+          'uyuşmuyor. Ev sahibi girişi: $homeEntry, '
+          'Deplasman girişi: $awayEntry',
+      extra: {
+        'secondEnteredBy': uid,
+        'secondEnteredHomeScore': home,
+        'secondEnteredAwayScore': away,
+      },
+    );
+  }
+
+  void _showError(String message) {
+    final scheme = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: TextStyle(color: scheme.onError)),
+        backgroundColor: scheme.error,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = widget.tournament;
+    final isFirstEntryMode = !widget.directComplete &&
+        !t.isAdminOnlyScoring &&
+        !(t.isDoubleEntryScoring && widget.match.isAwaitingConfirmation);
+    final title = widget.match.isFinal
+        ? 'Skoru Düzenle'
+        : isFirstEntryMode
+            ? 'Skoru Bildir'
+            : 'Skoru Gir';
+
     return AlertDialog(
-      title: const Text('Skoru Gir'),
+      title: Text(title),
       content: Row(
         children: [
-          Expanded(child: _ScoreInput(label: widget.match.homeName, controller: _home)),
+          Expanded(
+            child: _ScoreInput(label: widget.match.homeName, controller: _home),
+          ),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 12),
             child: Text('-', style: TextStyle(fontSize: 22)),
           ),
-          Expanded(child: _ScoreInput(label: widget.match.awayName, controller: _away)),
+          Expanded(
+            child: _ScoreInput(label: widget.match.awayName, controller: _away),
+          ),
         ],
       ),
       actions: [
@@ -835,6 +1418,249 @@ class _ScoreEntryDialogState extends ConsumerState<_ScoreEntryDialog> {
               : const Text('Kaydet'),
         ),
       ],
+    );
+  }
+}
+
+/// Yöneticinin anlaşmazlıklı (disputed) bir maçı çözmesi için diyalog.
+///
+/// Girilen skor adaylarını (ilk giriş ve varsa ikinci giriş) listeler; yönetici
+/// birini onaylar ([TournamentRepository.updateMatchScore]) ya da farklı bir
+/// skoru elle girer. Onaylanan skor kesinleşir ve istatistikler işlenir.
+class _DisputeResolutionDialog extends ConsumerStatefulWidget {
+  const _DisputeResolutionDialog({
+    required this.tournament,
+    required this.match,
+  });
+
+  final Tournament tournament;
+  final TournamentMatch match;
+
+  @override
+  ConsumerState<_DisputeResolutionDialog> createState() =>
+      _DisputeResolutionDialogState();
+}
+
+class _DisputeResolutionDialogState
+    extends ConsumerState<_DisputeResolutionDialog> {
+  late final TextEditingController _home;
+  late final TextEditingController _away;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _home = TextEditingController();
+    _away = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _home.dispose();
+    _away.dispose();
+    super.dispose();
+  }
+
+  List<_ScoreCandidate> get _candidates {
+    final m = widget.match;
+    final list = <_ScoreCandidate>[];
+    if (m.enteredHomeScore != null && m.enteredAwayScore != null) {
+      final name = m.enteredBy == m.homeUid ? m.homeName : m.awayName;
+      list.add(_ScoreCandidate(
+        label: '$name girişi',
+        home: m.enteredHomeScore!,
+        away: m.enteredAwayScore!,
+      ));
+    }
+    if (m.secondEnteredHomeScore != null && m.secondEnteredAwayScore != null) {
+      final name = m.secondEnteredBy == m.homeUid ? m.homeName : m.awayName;
+      list.add(_ScoreCandidate(
+        label: '$name girişi',
+        home: m.secondEnteredHomeScore!,
+        away: m.secondEnteredAwayScore!,
+      ));
+    }
+    return list;
+  }
+
+  Future<void> _approve(int home, int away) async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await ref.read(tournamentRepositoryProvider).updateMatchScore(
+            tournamentId: widget.tournament.id,
+            matchId: widget.match.id,
+            homeScore: home,
+            awayScore: away,
+          );
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      final scheme = Theme.of(context).colorScheme;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Skor kaydedilemedi. Lütfen tekrar deneyin.',
+            style: TextStyle(color: scheme.onError),
+          ),
+          backgroundColor: scheme.error,
+        ),
+      );
+    }
+  }
+
+  void _approveManual() {
+    final home = int.tryParse(_home.text.trim());
+    final away = int.tryParse(_away.text.trim());
+    if (home == null || away == null || home < 0 || away < 0) {
+      final scheme = Theme.of(context).colorScheme;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Lütfen geçerli skorlar girin.',
+            style: TextStyle(color: scheme.onError),
+          ),
+          backgroundColor: scheme.error,
+        ),
+      );
+      return;
+    }
+    _approve(home, away);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final m = widget.match;
+
+    return AlertDialog(
+      title: const Text('Anlaşmazlığı Çöz'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '${m.homeName} - ${m.awayName}',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Girilen skorlardan birini onayla ya da farklı bir skor gir.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            for (final c in _candidates) ...[
+              _CandidateTile(
+                candidate: c,
+                onApprove: _saving ? null : () => _approve(c.home, c.away),
+              ),
+              const SizedBox(height: 10),
+            ],
+            const Divider(height: 24),
+            Text(
+              'Farklı skor gir',
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _ScoreInput(label: m.homeName, controller: _home)),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text('-', style: TextStyle(fontSize: 22)),
+                ),
+                Expanded(child: _ScoreInput(label: m.awayName, controller: _away)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _saving ? null : _approveManual,
+                child: const Text('Bu Skoru Kaydet'),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Kapat'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Anlaşmazlık çözümünde gösterilen tek bir skor adayı.
+class _ScoreCandidate {
+  const _ScoreCandidate({
+    required this.label,
+    required this.home,
+    required this.away,
+  });
+
+  final String label;
+  final int home;
+  final int away;
+}
+
+class _CandidateTile extends StatelessWidget {
+  const _CandidateTile({required this.candidate, required this.onApprove});
+
+  final _ScoreCandidate candidate;
+  final VoidCallback? onApprove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  candidate.label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${candidate.home} - ${candidate.away}',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: scheme.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          FilledButton.tonal(
+            onPressed: onApprove,
+            child: const Text('Bu Skoru Onayla'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -884,9 +1710,13 @@ class _ScoreInput extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _StandingsTab extends StatelessWidget {
-  const _StandingsTab({required this.standings});
+  const _StandingsTab({
+    required this.standings,
+    required this.tiebreakerMode,
+  });
 
   final List<StandingRow> standings;
+  final TiebreakerMode tiebreakerMode;
 
   @override
   Widget build(BuildContext context) {
@@ -899,12 +1729,110 @@ class _StandingsTab extends StatelessWidget {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _TiebreakerBadge(mode: tiebreakerMode),
+          const SizedBox(height: 12),
           const _StandingsHeaderRow(),
           const SizedBox(height: 4),
           for (var i = 0; i < standings.length; i++)
             _StandingsDataRow(rank: i + 1, row: standings[i]),
         ],
+      ),
+    );
+  }
+}
+
+/// Puan tablosunun üstünde averaj (tiebreaker) modunu gösteren küçük rozet;
+/// dokununca açıklamayı bir bottom sheet'te gösterir.
+class _TiebreakerBadge extends StatelessWidget {
+  const _TiebreakerBadge({required this.mode});
+
+  final TiebreakerMode mode;
+
+  /// Göreve göre genişletilmiş açıklama metni.
+  static String _explanation(TiebreakerMode mode) => switch (mode) {
+        TiebreakerMode.fifa => 'Genel averaj önce',
+        TiebreakerMode.uefa => 'İkili averaj önce (La Liga, Serie A)',
+        TiebreakerMode.hybrid => 'Genel averaj + ikili tiebreaker',
+      };
+
+  void _showInfo(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.balance_outlined, color: scheme.primary),
+                  const SizedBox(width: 10),
+                  Text(
+                    mode.label,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _explanation(mode),
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Puan eşitliğinde sıralama bu kurala göre belirlenir.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => _showInfo(context),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: scheme.secondary.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.balance_outlined, size: 14, color: scheme.primary),
+            const SizedBox(width: 6),
+            Text(
+              mode.label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: scheme.onSurface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.info_outline, size: 13, color: scheme.onSurfaceVariant),
+          ],
+        ),
       ),
     );
   }
@@ -1180,6 +2108,211 @@ class _ScorerRowTile extends StatelessWidget {
             'gol',
             style: theme.textTheme.bodySmall?.copyWith(
               color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Çift maçlı (iki ayaklı) eleme eşleşmesi
+// ---------------------------------------------------------------------------
+
+/// İki ayaklı bir eleme eşleşmesini (1. ve 2. maç) tek kartta gösterir; her iki
+/// maç da oynandığında toplam skoru ve turu geçen oyuncuyu (yeşil kenarlık ile)
+/// vurgular.
+class _TwoLeggedTieCard extends StatelessWidget {
+  const _TwoLeggedTieCard({
+    required this.tournament,
+    required this.leg1,
+    required this.leg2,
+  });
+
+  final Tournament tournament;
+  final TournamentMatch leg1;
+  final TournamentMatch leg2;
+
+  /// İki ayağın toplamında [uid]'nin attığı toplam gol.
+  int _aggFor(String uid) {
+    var total = 0;
+    for (final leg in [leg1, leg2]) {
+      if (!leg.isPlayed) continue;
+      if (leg.homeUid == uid) total += leg.homeScore!;
+      if (leg.awayUid == uid) total += leg.awayScore!;
+    }
+    return total;
+  }
+
+  /// [uid]'nin deplasmanda (away) attığı toplam gol — eşitlik bozucu.
+  int _awayFor(String uid) {
+    var total = 0;
+    for (final leg in [leg1, leg2]) {
+      if (!leg.isPlayed) continue;
+      if (leg.awayUid == uid) total += leg.awayScore!;
+    }
+    return total;
+  }
+
+  /// Tur atlayan oyuncunun uid'i (her iki maç oynanmadıysa null).
+  /// Kural: toplam gol → deplasman golü → 1. maçın ev sahibi.
+  String? _winnerUid() {
+    if (!leg1.isPlayed || !leg2.isPlayed) return null;
+    final a = leg1.homeUid;
+    final b = leg1.awayUid;
+    final aggA = _aggFor(a);
+    final aggB = _aggFor(b);
+    if (aggA != aggB) return aggA > aggB ? a : b;
+    final awayA = _awayFor(a);
+    final awayB = _awayFor(b);
+    if (awayA != awayB) return awayA > awayB ? a : b;
+    return a; // iki eşitlik → 1. maçın ev sahibi
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final winner = _winnerUid();
+    final decided = winner != null;
+    final winnerName =
+        winner == leg1.homeUid ? leg1.homeName : leg1.awayName;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: decided
+              ? Colors.green.withValues(alpha: 0.7)
+              : scheme.outline.withValues(alpha: 0.2),
+          width: decided ? 1.6 : 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          if (leg1.round.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                leg1.round,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          _MatchCard(tournament: tournament, match: leg1, legLabel: '1. Maç'),
+          const SizedBox(height: 10),
+          _MatchCard(tournament: tournament, match: leg2, legLabel: '2. Maç'),
+          if (decided) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Toplam: ${leg1.homeName} '
+                    '${_aggFor(leg1.homeUid)}-${_aggFor(leg1.awayUid)} '
+                    '${leg1.awayName}',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.check_circle,
+                          size: 16, color: Colors.green),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '$winnerName tur atladı',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: Colors.green.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Oyuncu için baş harf(ler)i gösteren yer tutucu avatar.
+class _PlayerAvatar extends StatelessWidget {
+  const _PlayerAvatar({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final initials = name.isEmpty
+        ? '?'
+        : name.substring(0, name.length >= 2 ? 2 : 1).toUpperCase();
+    return CircleAvatar(
+      radius: 14,
+      backgroundColor: scheme.primary.withValues(alpha: 0.15),
+      child: Text(
+        initials,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: scheme.primary,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+/// Turnuva notunu gösteren küçük bilgi kartı.
+class _NoteCard extends StatelessWidget {
+  const _NoteCard({required this.note});
+
+  final String note;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.secondary.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.secondary.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('📝', style: TextStyle(fontSize: 16)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              note,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurface,
+                height: 1.3,
+              ),
             ),
           ),
         ],

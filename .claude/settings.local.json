@@ -4,7 +4,11 @@
       "PowerShell(Get-Location; Get-ChildItem C:\\\\competra -Force -ErrorAction SilentlyContinue | Select-Object Name; Write-Output \"---FLUTTER---\"; \\(Get-Command flutter -ErrorAction SilentlyContinue\\).Source)",
       "PowerShell(flutter *)",
       "Bash(flutter analyze *)",
-      "Bash(flutter pub *)"
+      "Bash(flutter pub *)",
+      "Bash(firebase --version)",
+      "Bash(npm --version)",
+      "Bash(npm run *)",
+      "PowerShell(firebase deploy *)"
     ]
   }
 }

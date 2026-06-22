@@ -1,0 +1,265 @@
+rules_version = '2';
+
+// Competra — Firestore Güvenlik Kuralları
+//
+// NOT (kod ↔ doküman uyumu):
+// Bu kurallar dokümandaki izin yapısını birebir uygular, ancak katılımcılık /
+// yöneticilik / sahiplik kontrolleri MEVCUT İSTEMCİ KODUNUN gerçek alanlarına
+// göre yazılmıştır:
+//   * tournaments ana belgesi: `participantIds` (dizi) ve `ownerId`
+//   * matches: `homeUid` / `awayUid`  (dokümandaki homePlayerId/awayPlayerId
+//     için de geriye dönük `get(...)` ile destek verilir)
+//   * notifications: `userId`  (dokümandaki `uid` yerine istemcinin kullandığı alan)
+// `participants` / `groups` alt koleksiyonları için kurallar da yazılmıştır
+// (ileride alt-koleksiyon modeline geçilirse hazır olsun diye).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -----------------------------------------------------------------
+    // Yardımcı fonksiyonlar
+    // -----------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function tournamentData(tid) {
+      return get(/databases/$(database)/documents/tournaments/$(tid)).data;
+    }
+
+    // Turnuvaya katılmış mı? (ana belgedeki participantIds dizisine göre)
+    function isParticipant(tid) {
+      return isSignedIn()
+        && request.auth.uid in tournamentData(tid).participantIds;
+    }
+
+    // Turnuva admini (oluşturan) mı?
+    function isTournamentAdmin(tid) {
+      return isSignedIn()
+        && tournamentData(tid).ownerId == request.auth.uid;
+    }
+
+    // Kullanıcı YALNIZCA kendini katılımcı listesine ekliyor mu?
+    // (davet koduyla katılma akışı). Sahiplik/durum/kod/ad/format gibi
+    // kritik alanlar değişmemelidir; böylece katılan kişi turnuvayı ele
+    // geçiremez, yalnızca participantIds/participants listelerine kendini ekler.
+    function joiningSelfOnly() {
+      return isSignedIn()
+        && !(request.auth.uid in resource.data.participantIds)
+        && (request.auth.uid in request.resource.data.participantIds)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.inviteCode == resource.data.inviteCode
+        && request.resource.data.name == resource.data.name
+        && request.resource.data.format == resource.data.format;
+    }
+
+    // İzin verilen alanlar dışında hiçbir alan değişmemiş mi? (merge yazımında
+    // diğer alanlar korunduğundan, keys() yerine yalnızca DEĞİŞEN alanlar
+    // [diff().affectedKeys()] kontrol edilir.)
+    function changedKeysWithin(allowed) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(allowed);
+    }
+
+    // -----------------------------------------------------------------
+    // users
+    // -----------------------------------------------------------------
+    match /users/{uid} {
+      allow read: if isSignedIn();
+
+      // Kişi YALNIZCA kendi belgesine yazabilir. Başka bir kullanıcının
+      // istatistiklerini (totalMatches, badges, tournamentsWon…) artık yalnızca
+      // Cloud Functions (admin SDK) günceller; bu, istemci tarafı hile / sahte
+      // istatistik yazımını tamamen engeller.
+      //
+      // CREATE: Yeni kayıt sırasında belge ilk kez oluşturulurken tüm profil
+      // alanları (istatistikler dahil sıfır değerleriyle) yazılabilir.
+      // UPDATE: İstemci yalnızca düzenlenebilir profil alanlarını değiştirebilir;
+      // istatistik alanları (totalMatches, badges, tournamentsWon…) istemciden
+      // güncellenemez — bunları yalnızca Cloud Functions yazar.
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isSignedIn() && request.auth.uid == uid
+        && changedKeysWithin([
+             'username', 'usernameLower', 'bio', 'favoriteTeam',
+             'photoUrl', 'coverUrl', 'fcmToken', 'fcmTokenUpdatedAt',
+             'activeTitle', 'notificationPrefs'
+           ]);
+    }
+
+    // -----------------------------------------------------------------
+    // usernames (kullanıcı adı benzersizliği)
+    // -----------------------------------------------------------------
+    match /usernames/{username} {
+      // Giriş yapmamış kullanıcılar kullanıcı adı/e-posta enumerasyonu
+      // yapamasın (kayıt/giriş akışı oturum açıkken sorgular).
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if isSignedIn()
+        && resource.data.uid == request.auth.uid;
+    }
+
+    // -----------------------------------------------------------------
+    // tournaments
+    // -----------------------------------------------------------------
+    match /tournaments/{tournamentId} {
+      // Tekil belge okuma (get): yalnızca katılımcılar.
+      allow get: if isSignedIn()
+        && request.auth.uid in resource.data.participantIds;
+
+      // Sorgu (list): ya katılımcı kendi turnuvalarını çeker
+      // (participantIds arrayContains uid), ya da davet kodu araması yapılır.
+      // Firestore alan-bazlı okuma kısıtlayamadığından, davet kodu araması
+      // `limit <= 1` ile sınırlandırılır (joinByInviteCode `.limit(1)` kullanır);
+      // böylece tüm turnuvalar listelenemez, yalnızca koddan tekil arama yapılır.
+      allow list: if isSignedIn() && (
+        request.auth.uid in resource.data.participantIds
+        || request.query.limit <= 1
+      );
+
+      allow create: if isSignedIn();
+
+      // Güncelleme: turnuva admini her şeyi; diğer kullanıcılar yalnızca
+      // kendilerini katılımcı listesine ekleyebilir (davet koduyla katılma).
+      allow update: if isSignedIn() && (
+        resource.data.ownerId == request.auth.uid
+        || joiningSelfOnly()
+      );
+
+      allow delete: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+
+      // participants alt koleksiyonu — turnuva-içi istatistikler.
+      //
+      // Bu istatistikler artık YALNIZCA Cloud Functions (admin SDK) tarafından
+      // yazılır; istemci hiçbir koşulda katılımcı istatistiği oluşturamaz/
+      // güncelleyemez (hile engeli). İstemci yalnızca okur. (Admin SDK güvenlik
+      // kurallarını bypass eder; turnuva yöneticisinin de yazmasına gerek yok.)
+      match /participants/{participantUid} {
+        allow read: if isParticipant(tournamentId);
+        allow write: if false;
+      }
+
+      // matches alt koleksiyonu
+      //
+      // İstemci YALNIZCA maç skoru / onay-akışı alanlarını yazar; istatistik
+      // işleme (statsApplied, tur ilerletme, şampiyon) Cloud Functions'a aittir.
+      // Bu yüzden oyuncuların yazabileceği alanlar bir allowlist ile sınırlanır;
+      // özellikle `statsApplied` istemciden YAZILAMAZ (aksi halde oyuncu maçı
+      // istatistik işlenmeden "işlenmiş" damgalayıp kayıt atlatabilirdi).
+      // Turnuva yöneticisi (admin) her alanı düzenleyebilir.
+      match /matches/{matchId} {
+        allow read: if isParticipant(tournamentId);
+        allow update: if isTournamentAdmin(tournamentId)
+          || ((request.auth.uid == resource.data.get('homeUid', '')
+               || request.auth.uid == resource.data.get('awayUid', '')
+               || request.auth.uid == resource.data.get('homePlayerId', '')
+               || request.auth.uid == resource.data.get('awayPlayerId', ''))
+              && changedKeysWithin([
+                   'homeScore', 'awayScore', 'played', 'status',
+                   'enteredBy', 'enteredHomeScore', 'enteredAwayScore',
+                   'secondEnteredBy', 'secondEnteredHomeScore', 'secondEnteredAwayScore'
+                 ]));
+        allow create: if isTournamentAdmin(tournamentId);
+        allow delete: if isTournamentAdmin(tournamentId);
+      }
+
+      // groups alt koleksiyonu (grup fazı)
+      match /groups/{groupId} {
+        allow read: if isParticipant(tournamentId);
+        allow write: if isTournamentAdmin(tournamentId);
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // friendships
+    // -----------------------------------------------------------------
+    match /friendships/{friendshipId} {
+      allow read: if isSignedIn()
+        && request.auth.uid in resource.data.users;
+      allow create: if isSignedIn()
+        && request.auth.uid in request.resource.data.users;
+      allow update: if isSignedIn()
+        && request.auth.uid in resource.data.users;
+      // İstek reddi (declineRequest) belgeyi sildiği için delete de izinli.
+      allow delete: if isSignedIn()
+        && request.auth.uid in resource.data.users;
+    }
+
+    // -----------------------------------------------------------------
+    // friendGroups
+    // -----------------------------------------------------------------
+    match /friendGroups/{groupId} {
+      allow read: if isSignedIn()
+        && exists(/databases/$(database)/documents/friendGroups/$(groupId)/members/$(request.auth.uid));
+      // Sahte grup oluşturmayı önle: grubu yalnızca sahibi (createdBy) oluşturur
+      // ve başlangıçta tek üyeli (memberCount == 1) olmalıdır.
+      allow create: if isSignedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.memberCount == 1;
+      allow update: if isSignedIn()
+        && resource.data.createdBy == request.auth.uid;
+      allow delete: if isSignedIn()
+        && resource.data.createdBy == request.auth.uid;
+
+      // members alt koleksiyonu
+      match /members/{memberUid} {
+        allow read: if isSignedIn() &&
+          exists(/databases/$(database)/documents/friendGroups/$(groupId)/members/$(request.auth.uid));
+
+        // Üye ekleme/çıkarma yalnızca grup sahibine aittir. Grup-içi maç
+        // istatistikleri (totalMatches, totalPoints…) artık Cloud Functions
+        // (admin SDK) tarafından yazılır; istemcinin kendi istatistiğini
+        // şişirmesi engellenir.
+        allow write: if isSignedIn() &&
+          get(/databases/$(database)/documents/friendGroups/$(groupId)).data.createdBy
+          == request.auth.uid;
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // wheels
+    // -----------------------------------------------------------------
+    match /wheels/{wheelId} {
+      allow read: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn()
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+      allow delete: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+    }
+
+    // -----------------------------------------------------------------
+    // feedback (yalnızca yazılır, okunamaz)
+    // -----------------------------------------------------------------
+    match /feedback/{feedbackId} {
+      allow create: if isSignedIn();
+      allow read: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------
+    // notifications  (istemci `userId` alanını sorgular)
+    // -----------------------------------------------------------------
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+      // Kullanıcı yalnızca BAŞKASINA bildirim oluşturabilir (kendine spam /
+      // sahte bildirim engeli). Ayrıca belge zorunlu alanları içermeli ve
+      // `type` bilinen bir değer olmalı (sahte/keyfi bildirim spam'i engeli).
+      allow create: if isSignedIn()
+        && request.resource.data.userId != request.auth.uid
+        && request.resource.data.keys().hasAll(
+             ['userId', 'type', 'title', 'message', 'read', 'createdAt'])
+        && request.resource.data.type in [
+             'friendRequest', 'matchConfirm', 'tournamentComplete', 'generic'
+           ];
+      allow update: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+    }
+  }
+}

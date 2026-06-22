@@ -4,8 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../components/pitch_pattern_background.dart';
+import '../../core/time_ago.dart';
+import '../../models/app_notification.dart';
 import '../../models/tournament.dart';
 import '../../router/route_paths.dart';
+import '../../services/notification_repository.dart';
 import '../../services/tournament_repository.dart';
 import '../../services/user_repository.dart';
 
@@ -35,6 +38,11 @@ class HomeScreen extends ConsumerWidget {
                   .animate()
                   .fadeIn(duration: 400.ms)
                   .slideY(begin: 0.12, end: 0),
+              const SizedBox(height: 20),
+              const _QuickStats()
+                  .animate()
+                  .fadeIn(delay: 80.ms, duration: 420.ms)
+                  .slideY(begin: 0.12, end: 0),
               const SizedBox(height: 28),
               tournamentsAsync
                   .when(
@@ -51,6 +59,11 @@ class HomeScreen extends ConsumerWidget {
                   )
                   .animate()
                   .fadeIn(delay: 120.ms, duration: 450.ms)
+                  .slideY(begin: 0.12, end: 0),
+              const SizedBox(height: 28),
+              const _RecentActivity()
+                  .animate()
+                  .fadeIn(delay: 200.ms, duration: 450.ms)
                   .slideY(begin: 0.12, end: 0),
             ],
           ),
@@ -92,6 +105,11 @@ class _HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
         ),
       ),
       actions: [
+        IconButton(
+          tooltip: 'Global Sıralama',
+          onPressed: () => context.pushNamed(RoutePaths.leaderboardName),
+          icon: const Icon(Icons.leaderboard_outlined),
+        ),
         Padding(
           padding: const EdgeInsets.only(right: 20),
           child: CircleAvatar(
@@ -201,6 +219,246 @@ class _SectionTitle extends StatelessWidget {
       style: Theme.of(context).textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w700,
           ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hızlı istatistik özeti
+// ---------------------------------------------------------------------------
+
+/// Oturum açmış kullanıcının `users/{uid}` istatistiklerinden hızlı özet:
+/// toplam maç, galibiyet yüzdesi ve toplam gol.
+class _QuickStats extends ConsumerWidget {
+  const _QuickStats();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profile = ref.watch(userProfileProvider).asData?.value;
+    final matches = profile?.totalMatches ?? 0;
+    final winRate = profile?.winRate ?? 0;
+    final goals = profile?.totalGoalsScored ?? 0;
+
+    return Row(
+      children: [
+        Expanded(
+          child: _StatTile(
+            icon: Icons.sports_soccer,
+            value: '$matches',
+            label: 'Toplam Maç',
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _StatTile(
+            icon: Icons.emoji_events_outlined,
+            value: '%$winRate',
+            label: 'Galibiyet',
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _StatTile(
+            icon: Icons.sports_score_outlined,
+            value: '$goals',
+            label: 'Toplam Gol',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Hızlı istatistik satırındaki tek bir kutu.
+class _StatTile extends StatelessWidget {
+  const _StatTile({
+    required this.icon,
+    required this.value,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 22, color: scheme.primary),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: scheme.primary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Son aktiviteler (bildirimler)
+// ---------------------------------------------------------------------------
+
+/// Kullanıcının son 10 bildirimini (notifications koleksiyonu) gösteren bölüm.
+class _RecentActivity extends ConsumerWidget {
+  const _RecentActivity();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(notificationsProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle('Son Aktiviteler'),
+        const SizedBox(height: 14),
+        async.when(
+          loading: () => const SizedBox(
+            height: 80,
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (_, __) =>
+              const _MessageCardBody(message: 'Aktiviteler yüklenemedi.'),
+          data: (items) {
+            if (items.isEmpty) {
+              return const _MessageCardBody(message: 'Henüz aktivite yok.');
+            }
+            final recent = items.take(10).toList();
+            return Column(
+              children: [
+                for (var i = 0; i < recent.length; i++) ...[
+                  _ActivityTile(item: recent[i]),
+                  if (i != recent.length - 1) const SizedBox(height: 10),
+                ],
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// Tek bir bildirim/aktivite satırı: ikon + mesaj + zaman.
+class _ActivityTile extends StatelessWidget {
+  const _ActivityTile({required this.item});
+
+  final AppNotification item;
+
+  IconData get _icon => switch (item.type) {
+        NotificationType.matchConfirm => Icons.scoreboard_outlined,
+        NotificationType.friendRequest => Icons.person_add_alt,
+        NotificationType.tournamentInvite => Icons.emoji_events_outlined,
+        NotificationType.tournamentComplete => Icons.emoji_events,
+        NotificationType.generic => Icons.notifications_outlined,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final time = timeAgoTr(item.createdAt);
+    final message = item.message.isNotEmpty ? item.message : item.title;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: scheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(_icon, color: scheme.primary, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(height: 1.3),
+                ),
+                if (time.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    time,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bölüm içinde kullanılan basit mesaj/boş durum kartı (başlıksız).
+class _MessageCardBody extends StatelessWidget {
+  const _MessageCardBody({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
+      ),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
     );
   }
 }

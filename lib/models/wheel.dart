@@ -9,6 +9,7 @@ class Wheel {
     required this.name,
     required this.teams,
     required this.createdAt,
+    this.lastResults = const [],
   });
 
   final String id;
@@ -16,14 +17,19 @@ class Wheel {
   final List<String> teams;
   final DateTime? createdAt;
 
+  /// Son çevirme sonuçları (en yeni başta, en çok 10 kayıt).
+  final List<String> lastResults;
+
   factory Wheel.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? const <String, dynamic>{};
     final rawTeams = (data['teams'] as List?) ?? const [];
+    final rawResults = (data['lastResults'] as List?) ?? const [];
     return Wheel(
       id: doc.id,
       name: (data['name'] as String?) ?? 'Çark',
       teams: [for (final t in rawTeams) '$t'],
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      lastResults: [for (final r in rawResults) '$r'],
     );
   }
 }

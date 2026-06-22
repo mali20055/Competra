@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for Firebase / network access in all build types (incl. release). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Galeriden profil fotoğrafı seçimi için (Android 13+). -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <!-- Push bildirimleri (FCM) için (Android 13+ runtime izni). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="competra"
         android:name="${applicationName}"
@@ -24,6 +30,18 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Deep link: competra://join/ABC123 ile turnuvaya katılma. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="competra" android:host="join"/>
+            </intent-filter>
+            <!-- Flutter'ın deep link'leri go_router'a iletmesini etkinleştirir.
+                 (meta-data, intent-filter'ın değil <activity>'nin çocuğu olmalıdır.) -->
+            <meta-data
+                android:name="flutter_deeplinking_enabled"
+                android:value="true"/>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

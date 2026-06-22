@@ -1,3 +1,8 @@
+plugins {
+    // Crashlytics Gradle eklentisi (sürüm burada, uygulama modülünde uygulanır).
+    id("com.google.firebase.crashlytics") version "3.0.2" apply false
+}
+
 allprojects {
     repositories {
         google()

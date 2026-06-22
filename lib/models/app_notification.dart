@@ -5,16 +5,24 @@ enum NotificationType {
   matchConfirm,
   friendRequest,
   tournamentInvite,
+  tournamentComplete,
   generic;
 
+  // Hem snake_case (eski) hem camelCase (yeni) tip adları desteklenir.
   static NotificationType fromString(String? value) {
     switch (value) {
       case 'match_confirm':
+      case 'matchConfirm':
         return NotificationType.matchConfirm;
       case 'friend_request':
+      case 'friendRequest':
         return NotificationType.friendRequest;
       case 'tournament_invite':
+      case 'tournamentInvite':
         return NotificationType.tournamentInvite;
+      case 'tournament_complete':
+      case 'tournamentComplete':
+        return NotificationType.tournamentComplete;
       default:
         return NotificationType.generic;
     }
@@ -30,6 +38,9 @@ class AppNotification {
     required this.message,
     required this.read,
     required this.createdAt,
+    this.tournamentId,
+    this.matchId,
+    this.senderId,
   });
 
   final String id;
@@ -38,6 +49,16 @@ class AppNotification {
   final String message;
   final bool read;
   final DateTime? createdAt;
+
+  /// İlgili turnuva (varsa) — maç onayı / turnuva tamamlandı bildirimleri için
+  /// yönlendirmede kullanılır.
+  final String? tournamentId;
+
+  /// İlgili maç (varsa) — maç onayı bildirimleri için.
+  final String? matchId;
+
+  /// Bildirimi tetikleyen kullanıcı (varsa) — ör. arkadaşlık isteği gönderen.
+  final String? senderId;
 
   factory AppNotification.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? const <String, dynamic>{};
@@ -48,6 +69,9 @@ class AppNotification {
       message: (data['message'] as String?) ?? '',
       read: (data['read'] as bool?) ?? false,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      tournamentId: data['tournamentId'] as String?,
+      matchId: data['matchId'] as String?,
+      senderId: data['senderId'] as String?,
     );
   }
 }

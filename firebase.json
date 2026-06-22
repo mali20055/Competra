@@ -1,1 +1,46 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"competra-9e396","appId":"1:1016063457655:android:d23432853adc7043e14972","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"competra-9e396","configurations":{"android":"1:1016063457655:android:d23432853adc7043e14972","ios":"1:1016063457655:ios:fac4f0b30dfbea06e14972"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run lint",
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
+    }
+  ],
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "competra-9e396",
+          "appId": "1:1016063457655:android:d23432853adc7043e14972",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "competra-9e396",
+          "configurations": {
+            "android": "1:1016063457655:android:d23432853adc7043e14972",
+            "ios": "1:1016063457655:ios:fac4f0b30dfbea06e14972"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "@@locale": "tr",
+
+  "appName": "Competra",
+
+  "login": "Giriş Yap",
+  "register": "Kayıt Ol",
+  "continueAsGuest": "Misafir Olarak Devam Et",
+
+  "createTournament": "Turnuva Oluştur",
+  "joinTournament": "Turnuvaya Katıl",
+
+  "home": "Ana Sayfa",
+  "tournaments": "Turnuvalar",
+  "wheel": "Çark",
+  "friends": "Arkadaşlar",
+  "profile": "Profil",
+
+  "standings": "Puan Durumu",
+  "fixtures": "Fikstür",
+  "statistics": "İstatistikler",
+
+  "save": "Kaydet",
+  "cancel": "İptal",
+  "confirm": "Onayla",
+  "delete": "Sil",
+
+  "errorGeneric": "Bir şeyler ters gitti. Lütfen tekrar deneyin.",
+  "errorNetwork": "İnternet bağlantısı yok.",
+
+  "tournamentCompleted": "Turnuva tamamlandı",
+  "champion": "Şampiyon",
+
+  "noDataYet": "Henüz veri yok",
+  "loading": "Yükleniyor..."
+}

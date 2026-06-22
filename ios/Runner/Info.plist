@@ -2,6 +2,24 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!--
+	  TODO (yalnızca macOS / Xcode'da yapılacak — Push Bildirimleri / FCM):
+	  1. Xcode > Runner > Signing & Capabilities altında şu yetenekleri ekleyin:
+	       - "Push Notifications"
+	       - "Background Modes" > "Remote notifications" işaretli
+	     (Bu, aşağıdaki UIBackgroundModes anahtarını da ekler.)
+	  2. APNs Authentication Key'i Firebase Console > Project Settings >
+	     Cloud Messaging bölümüne yükleyin.
+	  3. Arka planda bildirim göstermek için gerekli anahtar (capability eklenince
+	     Xcode otomatik ekler, manuel isterseniz):
+	       <key>UIBackgroundModes</key>
+	       <array>
+	         <string>remote-notification</string>
+	       </array>
+	  4. (İsteğe bağlı) Yöntem swizzling'i kapatmak isterseniz:
+	       <key>FirebaseAppDelegateProxyEnabled</key>
+	       <false/>
+	-->
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

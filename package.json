@@ -1,0 +1,25 @@
+{
+  "name": "competra",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Competra - Tournament Management Platform for Amateur Gamers",
+  "scripts": {
+    "dev": "pnpm --filter @competra/backend dev",
+    "build": "pnpm --filter @competra/backend build",
+    "lint": "pnpm -r lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
+  },
+  "keywords": [
+    "tournament",
+    "gaming",
+    "esports",
+    "fifa",
+    "pes"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}

@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/wheel.dart';
@@ -32,6 +33,10 @@ class _WheelScreenState extends ConsumerState<WheelScreen>
   String? _selectedId;
   int? _resultIndex;
 
+  // Haptic "tıkırtı" için: dönerken geçilen dilim sayısı ve son tetiklenen dilim.
+  int _currentSpinSlices = 0;
+  int? _lastTickIndex;
+
   @override
   void initState() {
     super.initState();
@@ -40,12 +45,26 @@ class _WheelScreenState extends ConsumerState<WheelScreen>
       duration: const Duration(milliseconds: 4200),
     );
     _spinAnimation = const AlwaysStoppedAnimation(0);
+    // Dönüş boyunca her dilim geçişinde hafif titreşim (ratchet hissi).
+    _spinController.addListener(_onSpinTick);
   }
 
   @override
   void dispose() {
+    _spinController.removeListener(_onSpinTick);
     _spinController.dispose();
     super.dispose();
+  }
+
+  /// Dönerken, çark bir dilim genişliği kadar döndüğünde hafif titreşim verir.
+  void _onSpinTick() {
+    if (!_isSpinning || _currentSpinSlices < 2) return;
+    final sweep = 2 * pi / _currentSpinSlices;
+    final index = (_spinAnimation.value / sweep).floor() % _currentSpinSlices;
+    if (index != _lastTickIndex) {
+      _lastTickIndex = index;
+      HapticFeedback.mediumImpact();
+    }
   }
 
   /// Gelen listeden seçili çarkı çözer (seçim yoksa ilki).
@@ -89,6 +108,8 @@ class _WheelScreenState extends ConsumerState<WheelScreen>
     setState(() {
       _isSpinning = true;
       _resultIndex = null;
+      _currentSpinSlices = n;
+      _lastTickIndex = null;
     });
 
     _spinController.forward(from: 0).whenComplete(() {
@@ -98,7 +119,23 @@ class _WheelScreenState extends ConsumerState<WheelScreen>
         _isSpinning = false;
         _resultIndex = target;
       });
+      // Sonuç açıklandı → güçlü titreşim + geçmişe kaydet.
+      HapticFeedback.heavyImpact();
+      _recordResult(wheel, wheel.teams[target]);
     });
+  }
+
+  /// Sonucu çarkın geçmişine (Firestore) yazar; hata sessizce yutulur.
+  Future<void> _recordResult(Wheel wheel, String result) async {
+    try {
+      await ref.read(wheelRepositoryProvider).recordResult(
+            wheelId: wheel.id,
+            result: result,
+            previous: wheel.lastResults,
+          );
+    } catch (_) {
+      // Geçmiş kaydı kritik değil; sessizce geç.
+    }
   }
 
   /// Çarkı onay alarak Firestore'dan siler.
@@ -360,6 +397,8 @@ class _WheelBody extends StatelessWidget {
                         ),
                       ),
                     ),
+                  const SizedBox(height: 28),
+                  _ResultHistory(results: selected.lastResults),
                   const SizedBox(height: 24),
                 ],
               ),
@@ -837,6 +876,93 @@ class _CreateWheelSheetState extends ConsumerState<_CreateWheelSheet> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Çarkın son sonuçlarını chip'ler halinde gösteren bölüm (son 5).
+class _ResultHistory extends StatelessWidget {
+  const _ResultHistory({required this.results});
+
+  final List<String> results;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final recent = results.take(5).toList();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.history, size: 18, color: scheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Son Sonuçlar',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (recent.isEmpty)
+            Text(
+              'Henüz çark çevrilmedi',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (var i = 0; i < recent.length; i++)
+                  _ResultChip(label: recent[i], highlight: i == 0),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tek bir geçmiş sonuç chip'i; en yeni (ilk) sonuç vurgulanır.
+class _ResultChip extends StatelessWidget {
+  const _ResultChip({required this.label, required this.highlight});
+
+  final String label;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: highlight
+            ? scheme.primary.withValues(alpha: 0.14)
+            : scheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: highlight
+              ? scheme.primary.withValues(alpha: 0.5)
+              : scheme.outline.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: highlight ? scheme.primary : scheme.onSurface,
+          fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
         ),
       ),
     );

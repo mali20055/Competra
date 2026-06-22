@@ -9,6 +9,9 @@ class RoutePaths {
   static const String splash = '/';
   static const String splashName = 'splash';
 
+  static const String onboarding = '/onboarding';
+  static const String onboardingName = 'onboarding';
+
   static const String login = '/login';
   static const String loginName = 'login';
 
@@ -31,6 +34,9 @@ class RoutePaths {
   static const String profile = '/profile';
   static const String profileName = 'profile';
 
+  static const String leaderboard = '/leaderboard';
+  static const String leaderboardName = 'leaderboard';
+
   // Turnuva akışları
   static const String createTournament = '/create-tournament';
   static const String createTournamentName = 'create-tournament';
@@ -38,13 +44,32 @@ class RoutePaths {
   static const String joinTournament = '/join-tournament';
   static const String joinTournamentName = 'join-tournament';
 
+  /// Deep link ile katılma — `:code` path parametresi alır
+  /// (competra://join/ABC123).
+  static const String joinByCode = '/join/:code';
+  static const String joinByCodeName = 'join-by-code';
+
   /// Turnuva detayı — `:id` path parametresi alır.
   static const String tournamentDetail = '/tournament/:id';
   static const String tournamentDetailName = 'tournament-detail';
+
+  /// Turnuva kutlama/özet (wrapped) ekranı — `:id` path parametresi alır.
+  static const String tournamentWrapped = '/tournament/:id/wrapped';
+  static const String tournamentWrappedName = 'tournament-wrapped';
 
   static const String notifications = '/notifications';
   static const String notificationsName = 'notifications';
 
   static const String settings = '/settings';
   static const String settingsName = 'settings';
+
+  static const String privacyPolicy = '/privacy-policy';
+  static const String privacyPolicyName = 'privacy-policy';
+
+  static const String editProfile = '/edit-profile';
+  static const String editProfileName = 'edit-profile';
+
+  /// Arkadaş grubu detayı / sıralama tablosu — `:id` path parametresi alır.
+  static const String friendGroup = '/friend-group/:id';
+  static const String friendGroupName = 'friend-group';
 }

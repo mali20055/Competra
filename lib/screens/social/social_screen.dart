@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/time_ago.dart';
+import '../../models/friend_group.dart';
 import '../../models/friendship.dart';
 import '../../models/tournament.dart' show Participant;
 import '../../router/route_paths.dart';
@@ -99,10 +100,59 @@ class _SocialScreenState extends ConsumerState<SocialScreen> {
     }
   }
 
+  Future<void> _createGroup(String name) async {
+    final user = ref.read(currentUserProvider);
+    if (user == null) return;
+    final myName =
+        ref.read(userProfileProvider).asData?.value?.username ?? 'Oyuncu';
+    try {
+      await ref.read(socialRepositoryProvider).createFriendGroup(
+            owner: Participant(uid: user.uid, username: myName),
+            name: name,
+          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('"$name" grubu oluşturuldu.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        final scheme = Theme.of(context).colorScheme;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Grup oluşturulamadı.',
+              style: TextStyle(color: scheme.onError),
+            ),
+            backgroundColor: scheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showCreateGroupSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _CreateGroupSheet(onCreate: _createGroup),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Arkadaşlar')),
+      appBar: AppBar(
+        title: const Text('Arkadaşlar'),
+        actions: [
+          IconButton(
+            tooltip: 'Grup Oluştur',
+            icon: const Icon(Icons.group_add),
+            onPressed: _showCreateGroupSheet,
+          ),
+        ],
+      ),
       body: Column(
         children: [
           _SearchBar(
@@ -241,16 +291,18 @@ class _FriendsAndRequests extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
     final requestsAsync = ref.watch(incomingRequestsProvider);
     final friendsAsync = ref.watch(friendsProvider);
+    final groupsAsync = ref.watch(myFriendGroupsProvider);
     final myUid = user?.uid ?? '';
 
     final requests = requestsAsync.asData?.value ?? const <Friendship>[];
     final friends = friendsAsync.asData?.value ?? const <Friendship>[];
+    final groups = groupsAsync.asData?.value ?? const <FriendGroup>[];
 
     if (friendsAsync.isLoading && friends.isEmpty && requests.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (requests.isEmpty && friends.isEmpty) {
+    if (requests.isEmpty && friends.isEmpty && groups.isEmpty) {
       return const _EmptyState(
         icon: Icons.group_outlined,
         title: 'Henüz arkadaşın yok',
@@ -262,6 +314,20 @@ class _FriendsAndRequests extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (groups.isNotEmpty) ...[
+          _SectionTitle(
+            icon: Icons.workspaces_outline,
+            title: 'Gruplarım',
+            count: groups.length,
+          ),
+          const SizedBox(height: 12),
+          for (final group in groups)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _GroupTile(group: group),
+            ),
+          const SizedBox(height: 16),
+        ],
         if (requests.isNotEmpty) ...[
           _SectionTitle(
             icon: Icons.mark_email_unread_outlined,
@@ -428,6 +494,163 @@ class _FriendTile extends StatelessWidget {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Arkadaş grubu satırı: gruba dokununca sıralama ekranına gider.
+class _GroupTile extends StatelessWidget {
+  const _GroupTile({required this.group});
+
+  final FriendGroup group;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => context.pushNamed(
+          RoutePaths.friendGroupName,
+          pathParameters: {'id': group.id},
+          extra: group.name,
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: scheme.primary.withValues(alpha: 0.15),
+                child: Icon(Icons.workspaces, color: scheme.primary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      group.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${group.memberCount} üye',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Grup oluşturma bottom sheet'i: grup adı girilir.
+class _CreateGroupSheet extends StatefulWidget {
+  const _CreateGroupSheet({required this.onCreate});
+
+  final Future<void> Function(String name) onCreate;
+
+  @override
+  State<_CreateGroupSheet> createState() => _CreateGroupSheetState();
+}
+
+class _CreateGroupSheetState extends State<_CreateGroupSheet> {
+  final _controller = TextEditingController();
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final name = _controller.text.trim();
+    if (name.isEmpty || _submitting) return;
+    setState(() => _submitting = true);
+    await widget.onCreate(name);
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Grup Oluştur',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Arkadaşlarınla maçlarınızı takip edebileceğin bir grup oluştur.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+              decoration: const InputDecoration(
+                labelText: 'Grup adı',
+                hintText: 'Örn. Salı Akşamı Ligi',
+                prefixIcon: Icon(Icons.workspaces_outline),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _submitting ? null : _submit,
+                icon: _submitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.check),
+                label: const Text('Oluştur'),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
