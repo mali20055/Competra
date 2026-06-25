@@ -11,6 +11,7 @@ import '../screens/notifications/notifications_screen.dart';
 import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/profile/edit_profile_screen.dart';
 import '../screens/profile/profile_screen.dart';
+import '../screens/profile/user_profile_screen.dart';
 import '../screens/settings/privacy_policy_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/social/friend_group_screen.dart';
@@ -204,6 +205,14 @@ class AppRouter {
         builder: (context, state) => FriendGroupScreen(
           groupId: state.pathParameters['id'] ?? '',
           groupName: state.extra is String ? state.extra as String : null,
+        ),
+      ),
+      GoRoute(
+        path: RoutePaths.userProfile,
+        name: RoutePaths.userProfileName,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => UserProfileScreen(
+          uid: state.pathParameters['uid'] ?? '',
         ),
       ),
     ],

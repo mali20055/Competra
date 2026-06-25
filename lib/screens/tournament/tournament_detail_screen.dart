@@ -397,6 +397,16 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
                       child: _ParticipantTile(
                         name: p.username,
                         isOwner: p.uid == t.ownerId,
+                        onTap: () {
+                          if (p.uid == (user?.uid ?? '')) {
+                            context.goNamed(RoutePaths.profileName);
+                          } else {
+                            context.pushNamed(
+                              RoutePaths.userProfileName,
+                              pathParameters: {'uid': p.uid},
+                            );
+                          }
+                        },
                       ),
                     ),
                 ],
@@ -538,16 +548,27 @@ class _InviteCodeCard extends StatelessWidget {
 }
 
 class _ParticipantTile extends StatelessWidget {
-  const _ParticipantTile({required this.name, required this.isOwner});
+  const _ParticipantTile({
+    required this.name,
+    required this.isOwner,
+    this.onTap,
+  });
 
   final String name;
   final bool isOwner;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    return Container(
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: scheme.surface,
@@ -597,6 +618,8 @@ class _ParticipantTile extends StatelessWidget {
             ),
         ],
       ),
+    ),
+    ),
     );
   }
 }

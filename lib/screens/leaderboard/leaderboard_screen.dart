@@ -2,10 +2,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../components/skeleton_widgets.dart';
 import '../../core/constants/app_constants.dart';
 import '../../models/user_profile.dart';
+import '../../router/route_paths.dart';
 import '../../services/firebase_providers.dart';
 
 /// Liderlik tablosunun sıralandığı ölçüt.
@@ -192,6 +194,10 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
                       profile: profile,
                       metric: _metric,
                       isMe: profile.uid == myUid,
+                      onTap: () => context.pushNamed(
+                        RoutePaths.userProfileName,
+                        pathParameters: {'uid': profile.uid},
+                      ),
                     )
                         .animate()
                         .fadeIn(delay: (index * 50).ms, duration: 320.ms)
@@ -281,12 +287,14 @@ class _LeaderboardTile extends StatelessWidget {
     required this.profile,
     required this.metric,
     required this.isMe,
+    this.onTap,
   });
 
   final int rank;
   final UserProfile profile;
   final LeaderboardMetric metric;
   final bool isMe;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -295,10 +303,15 @@ class _LeaderboardTile extends StatelessWidget {
     final initial =
         profile.username.isNotEmpty ? profile.username[0].toUpperCase() : '?';
 
-    return Container(
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        // Kendi sıram vurgulu arka planla gösterilir.
         color: isMe
             ? scheme.primary.withValues(alpha: 0.14)
             : scheme.surface,
@@ -368,6 +381,8 @@ class _LeaderboardTile extends StatelessWidget {
           ),
         ],
       ),
+    ),
+    ),
     );
   }
 }

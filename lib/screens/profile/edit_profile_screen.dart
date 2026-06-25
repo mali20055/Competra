@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../services/firebase_providers.dart';
@@ -29,8 +30,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   String _username = 'Oyuncu';
   String _photoUrl = '';
   String _coverUrl = '';
-  XFile? _pickedImage;
-  XFile? _pickedCover;
+  CroppedFile? _pickedImage;
+  CroppedFile? _pickedCover;
 
   bool _uploading = false;
   bool _saving = false;
@@ -66,7 +67,22 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         maxWidth: 1024,
       );
       if (image == null) return;
-      setState(() => _pickedImage = image);
+      if (!mounted) return;
+      final scheme = Theme.of(context).colorScheme;
+      final croppedFile = await ImageCropper().cropImage(
+        sourcePath: image.path,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Profil Fotoğrafını Kırp',
+            toolbarColor: scheme.primary,
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: CropAspectRatioPreset.square,
+            lockAspectRatio: true,
+          ),
+        ],
+      );
+      if (croppedFile == null) return;
+      setState(() => _pickedImage = croppedFile);
     } catch (_) {
       if (mounted) _showError('Fotoğraf seçilemedi.');
     }
@@ -82,7 +98,22 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         maxWidth: 1600,
       );
       if (image == null) return;
-      setState(() => _pickedCover = image);
+      if (!mounted) return;
+      final scheme = Theme.of(context).colorScheme;
+      final croppedFile = await ImageCropper().cropImage(
+        sourcePath: image.path,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Kapak Fotoğrafını Kırp',
+            toolbarColor: scheme.primary,
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: CropAspectRatioPreset.ratio16x9,
+            lockAspectRatio: false,
+          ),
+        ],
+      );
+      if (croppedFile == null) return;
+      setState(() => _pickedCover = croppedFile);
     } catch (_) {
       if (mounted) _showError('Kapak fotoğrafı seçilemedi.');
     }

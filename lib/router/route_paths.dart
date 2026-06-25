@@ -72,4 +72,8 @@ class RoutePaths {
   /// Arkadaş grubu detayı / sıralama tablosu — `:id` path parametresi alır.
   static const String friendGroup = '/friend-group/:id';
   static const String friendGroupName = 'friend-group';
+
+  /// Oyuncu profili ziyareti — `:uid` path parametresi alır.
+  static const String userProfile = '/user/:uid';
+  static const String userProfileName = 'user-profile';
 }

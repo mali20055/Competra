@@ -172,8 +172,10 @@ class _SocialScreenState extends ConsumerState<SocialScreen> {
                     onAdd: _sendRequest,
                   )
                 : _FriendsAndRequests(
-                    onTapFriend: () =>
-                        context.goNamed(RoutePaths.profileName),
+                    onTapFriend: (uid) => context.pushNamed(
+                      RoutePaths.userProfileName,
+                      pathParameters: {'uid': uid},
+                    ),
                   ),
           ),
         ],
@@ -288,7 +290,7 @@ class _SentChip extends StatelessWidget {
 class _FriendsAndRequests extends ConsumerWidget {
   const _FriendsAndRequests({required this.onTapFriend});
 
-  final VoidCallback onTapFriend;
+  final ValueChanged<String> onTapFriend;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -366,7 +368,8 @@ class _FriendsAndRequests extends ConsumerWidget {
               padding: const EdgeInsets.only(bottom: 10),
               child: _FriendTile(
                 summary: friends[i].otherSummary(myUid),
-                onTap: onTapFriend,
+                onTap: () =>
+                    onTapFriend(friends[i].otherSummary(myUid).uid),
               )
                   .animate()
                   .fadeIn(delay: (i * 70).ms, duration: 350.ms)
