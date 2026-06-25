@@ -19,6 +19,7 @@
 import {onDocumentWritten, onDocumentCreated} from "firebase-functions/v2/firestore";
 import {logger} from "firebase-functions/v2";
 import * as admin from "firebase-admin";
+import {onSchedule} from "firebase-functions/v2/scheduler";
 
 import {
   Match,
@@ -36,6 +37,7 @@ import {
   generateNextKnockoutRound,
 } from "./fixtures";
 import {deriveAchievementUpdate, parseUserStats} from "./achievements";
+import {updateElo} from "./elo";
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -79,6 +81,41 @@ export const onMatchWritten = onDocumentWritten(
       try {
         const applied = await applyMatchStats(tournamentId, matchId);
         if (applied) {
+          // Sezon istatistiklerini güncelle
+          try {
+            const seasonSnap = await db.collection("seasons")
+              .where("isActive", "==", true).limit(1).get();
+            if (!seasonSnap.empty) {
+              const seasonId = seasonSnap.docs[0].id;
+              const homeWin = applied.homeScore > applied.awayScore;
+              const awayWin = applied.awayScore > applied.homeScore;
+
+              const homeSeasonDelta: Record<string, any> = {};
+              const awaySeasonDelta: Record<string, any> = {};
+
+              homeSeasonDelta[`seasonStats.${seasonId}.totalMatches`] = FieldValue.increment(1);
+              homeSeasonDelta[`seasonStats.${seasonId}.totalGoalsScored`] = FieldValue.increment(applied.homeScore);
+              homeSeasonDelta[`seasonStats.${seasonId}.totalGoalsConceded`] = FieldValue.increment(applied.awayScore);
+              if (homeWin) homeSeasonDelta[`seasonStats.${seasonId}.totalWins`] = FieldValue.increment(1);
+              if (awayWin) homeSeasonDelta[`seasonStats.${seasonId}.totalLosses`] = FieldValue.increment(1);
+
+              awaySeasonDelta[`seasonStats.${seasonId}.totalMatches`] = FieldValue.increment(1);
+              awaySeasonDelta[`seasonStats.${seasonId}.totalGoalsScored`] = FieldValue.increment(applied.awayScore);
+              awaySeasonDelta[`seasonStats.${seasonId}.totalGoalsConceded`] = FieldValue.increment(applied.homeScore);
+              if (awayWin) awaySeasonDelta[`seasonStats.${seasonId}.totalWins`] = FieldValue.increment(1);
+              if (homeWin) awaySeasonDelta[`seasonStats.${seasonId}.totalLosses`] = FieldValue.increment(1);
+
+              const batch = db.batch();
+              batch.update(db.collection("users").doc(applied.homeUid), homeSeasonDelta);
+              batch.update(db.collection("users").doc(applied.awayUid), awaySeasonDelta);
+              await batch.commit();
+            }
+          } catch (err) {
+            logger.error("Update seasonStats failed", {
+              tournamentId, matchId, err,
+            });
+          }
+
           // Bağımsız yan işlemler: biri başarısız olursa diğerleri yine de
           // çalışsın (ör. grup istatistiği yazımı patlasa bile rozet türetimi
           // engellenmesin).
@@ -88,6 +125,21 @@ export const onMatchWritten = onDocumentWritten(
             logger.error("updateFriendGroupStats failed", {
               tournamentId, matchId, err,
             });
+          }
+          // ELO hesapla (bye maçı değilse)
+          const isBye = applied.homeUid === 'bye' || applied.awayUid === 'bye';
+          if (!isBye && applied.homeUid && applied.awayUid) {
+            try {
+              await updateElo(
+                db,
+                applied.homeUid,
+                applied.awayUid,
+                applied.homeScore,
+                applied.awayScore,
+              );
+            } catch (err) {
+              logger.error('ELO update failed', {err});
+            }
           }
           for (const uid of [applied.homeUid, applied.awayUid]) {
             try {
@@ -183,6 +235,42 @@ export const onNotificationCreated = onDocumentCreated(
     }
   },
 );
+
+// ---------------------------------------------------------------------------
+// Arkadaş aktivite akışı (Activity Feed) fan-out
+// ---------------------------------------------------------------------------
+
+async function pushToFriendFeeds(
+  db: admin.firestore.Firestore,
+  actorUid: string,
+  feedItem: Record<string, unknown>
+): Promise<void> {
+  // Aktörün kabul edilmiş arkadaşlarını bul
+  const snap = await db.collection("friendships")
+    .where("users", "array-contains", actorUid)
+    .where("status", "==", "accepted")
+    .get();
+
+  if (snap.empty) return;
+
+  const batch = db.batch();
+  for (const doc of snap.docs) {
+    const users = doc.data().users as string[];
+    const friendUid = users.find((u) => u !== actorUid);
+    if (!friendUid) continue;
+    const ref = db
+      .collection("activity_feed")
+      .doc(friendUid)
+      .collection("items")
+      .doc();
+    batch.set(ref, {
+      ...feedItem,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      read: false,
+    });
+  }
+  await batch.commit();
+}
 
 // ---------------------------------------------------------------------------
 // (a) Maç istatistikleri — katılımcı + kullanıcı + hat-trick rozeti
@@ -352,9 +440,32 @@ async function runAchievements(uid: string): Promise<void> {
   const ref = db.collection("users").doc(uid);
   const snap = await ref.get();
   if (!snap.exists) return;
-  const update = deriveAchievementUpdate(parseUserStats(snap.data()!));
+  const userData = snap.data()!;
+  const oldBadges: string[] = Array.isArray(userData.badges) ? userData.badges.map((b: unknown) => `${b}`) : [];
+  const oldStats = parseUserStats(userData);
+  const update = deriveAchievementUpdate(oldStats);
   if (Object.keys(update).length > 0) {
     await ref.set(update, {merge: true});
+
+    if (update.badges && Array.isArray(update.badges)) {
+      const newlyEarnedBadges = (update.badges as string[]).filter((b) => !oldBadges.includes(b));
+      if (newlyEarnedBadges.length > 0) {
+        const userName = userData.username ?? "Bir oyuncu";
+        try {
+          for (const newBadge of newlyEarnedBadges) {
+            await pushToFriendFeeds(db, uid, {
+              type: "badge_earned",
+              actorUid: uid,
+              actorName: userName,
+              message: `${userName} yeni bir rozet kazandı! 🎖️`,
+              badgeId: newBadge,
+            });
+          }
+        } catch (err) {
+          logger.error("Feed fan-out failed (badge_earned)", {err});
+        }
+      }
+    }
   }
 }
 
@@ -653,6 +764,7 @@ async function finalizeTournament(
 ): Promise<void> {
   const users = db.collection("users");
   const notifications = db.collection("notifications");
+  const predsSnap = await tRef.collection("predictions").get();
 
   const committed = await db.runTransaction<boolean>(async (tx) => {
     const snap = await tx.get(tRef);
@@ -676,6 +788,27 @@ async function finalizeTournament(
         {tournamentsWon: FieldValue.increment(1), badges: FieldValue.arrayUnion("champion")},
         {merge: true},
       );
+
+      // Kazanan tahminlerini kontrol et
+      for (const pred of predsSnap.docs) {
+        const predData = pred.data();
+        if (predData.winnerUid === winnerId && predData.predictorUid) {
+          tx.set(
+            users.doc(predData.predictorUid),
+            {badges: FieldValue.arrayUnion("prophet")},
+            {merge: true},
+          );
+          tx.set(notifications.doc(), {
+            userId: predData.predictorUid,
+            type: "generic",
+            title: "Doğru Tahmin! 🔮",
+            message: `${tournament.name} turnuvasının kazananını doğru tahmin ettin! 🔮`,
+            tournamentId: tournament.id,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      }
     }
 
     for (const p of tournament.participants) {
@@ -696,6 +829,43 @@ async function finalizeTournament(
   });
 
   if (!committed) return;
+
+  if (winnerId) {
+    try {
+      // Şampiyonun adını users koleksiyonundan çek
+      const winnerDoc = await db.collection("users").doc(winnerId).get();
+      const winnerName = winnerDoc.data()?.username ?? "Bir oyuncu";
+      await pushToFriendFeeds(db, winnerId, {
+        type: "tournament_won",
+        actorUid: winnerId,
+        actorName: winnerName,
+        message: `${winnerName} turnuvayı kazandı! 🏆`,
+        tournamentId: tournament.id,
+      });
+    } catch (err) {
+      logger.error("Feed fan-out failed (tournament_won)", {err});
+    }
+
+    // Doğru tahmin edenler için feed fan-out yap
+    try {
+      for (const pred of predsSnap.docs) {
+        const predData = pred.data();
+        if (predData.winnerUid === winnerId && predData.predictorUid) {
+          const predictorDoc = await db.collection("users").doc(predData.predictorUid).get();
+          const predictorName = predictorDoc.data()?.username ?? "Bir oyuncu";
+          await pushToFriendFeeds(db, predData.predictorUid, {
+            type: "badge_earned",
+            actorUid: predData.predictorUid,
+            actorName: predictorName,
+            message: `${predictorName} yeni bir rozet kazandı! 🔮`,
+            badgeId: "prophet",
+          });
+        }
+      }
+    } catch (err) {
+      logger.error("Feed fan-out failed (prophet badge)", {err});
+    }
+  }
 
   for (const p of tournament.participants) {
     // Bir kullanıcının rozet türetimi başarısız olsa bile diğer
@@ -723,3 +893,125 @@ function participantsFromMatches(matches: Match[]): Participant[] {
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
+
+// Her ayın 1'inde çalışır (00:00 Türkiye saati = UTC+3)
+export const startNewSeason = onSchedule(
+  {
+    schedule: "0 21 1 * *", // UTC 21:00 = TR 00:00
+    region: "europe-west3",
+    timeZone: "Europe/Istanbul",
+  },
+  async () => {
+    const db = admin.firestore();
+    const now = new Date();
+
+    // Aktif sezonu kapat
+    const activeSnap = await db.collection("seasons")
+      .where("isActive", "==", true).get();
+    const batch = db.batch();
+    for (const doc of activeSnap.docs) {
+      batch.update(doc.ref, { isActive: false });
+    }
+
+    // Yeni sezon oluştur
+    const monthNames = [
+      "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+      "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+    ];
+    const monthName = monthNames[now.getMonth()];
+    const year = now.getFullYear();
+    const newSeasonRef = db.collection("seasons").doc();
+    batch.set(newSeasonRef, {
+      name: `${monthName} ${year} Sezonu`,
+      startDate: admin.firestore.Timestamp.now(),
+      endDate: admin.firestore.Timestamp.fromDate(
+        new Date(year, now.getMonth() + 1, 1)
+      ),
+      isActive: true,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+    logger.info(`New season started: ${monthName} ${year}`);
+  }
+);
+
+async function addBadge(
+  db: admin.firestore.Firestore,
+  uid: string,
+  badgeId: string,
+): Promise<void> {
+  const userRef = db.collection("users").doc(uid);
+  const updated = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists) return false;
+    const data = snap.data()!;
+    const badges = Array.isArray(data.badges) ? data.badges : [];
+    if (!badges.includes(badgeId)) {
+      tx.update(userRef, {
+        badges: admin.firestore.FieldValue.arrayUnion(badgeId),
+      });
+      return true;
+    }
+    return false;
+  });
+
+  if (updated) {
+    try {
+      const userDoc = await userRef.get();
+      const userName = userDoc.data()?.username ?? "Bir oyuncu";
+      await pushToFriendFeeds(db, uid, {
+        type: "badge_earned",
+        actorUid: uid,
+        actorName: userName,
+        message: `${userName} yeni bir rozet kazandı! 🎖️`,
+        badgeId: badgeId,
+      });
+    } catch (err) {
+      logger.error("addBadge feed push failed", {uid, badgeId, err});
+    }
+  }
+}
+
+export const onTournamentUpdated = onDocumentWritten(
+  {
+    document: "tournaments/{tournamentId}",
+    region: "europe-west3",
+  },
+  async (event) => {
+    const after = event.data?.after;
+    if (!after || !after.exists) return;
+
+    const before = event.data?.before;
+    const afterData = after.data();
+    if (!afterData) return;
+    const beforeData = before?.exists ? before.data() : null;
+
+    const newMvpUid = afterData.mvpUid as string | undefined;
+    const oldMvpUid = beforeData?.mvpUid as string | undefined;
+
+    if (newMvpUid && newMvpUid !== oldMvpUid) {
+      try {
+        await addBadge(db, newMvpUid, "mvp");
+
+        const tournamentName = afterData.name ?? "Turnuva";
+        const notifRef = db.collection("notifications").doc();
+        await notifRef.set({
+          userId: newMvpUid,
+          type: "generic",
+          title: "Turnuva MVP'si Seçildin! ⭐️",
+          message: `${tournamentName} turnuvasında En Değerli Oyuncu (MVP) seçildin! ⭐️`,
+          tournamentId: event.params.tournamentId,
+          read: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch (err) {
+        logger.error("Error setting MVP badge / notification", {
+          tournamentId: event.params.tournamentId,
+          mvpUid: newMvpUid,
+          err,
+        });
+      }
+    }
+  }
+);

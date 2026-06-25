@@ -6,9 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/constants/app_constants.dart';
 import '../models/tournament.dart';
+import '../models/roster_entry.dart';
 import 'analytics_service.dart';
 import 'fixture_generator.dart';
 import 'firebase_providers.dart';
+import 'premium_service.dart';
 
 /// Turnuva şablonu — kullanıcının kaydettiği oluşturma ayarları.
 class TournamentTemplate {
@@ -106,6 +108,18 @@ class TournamentRepository {
   }) async {
     final user = _auth.currentUser;
     final uid = user?.uid ?? '';
+
+    final isPremium = await PremiumService.isPremium();
+    if (!isPremium) {
+      final activeTournaments = await _tournaments
+          .where('ownerId', isEqualTo: uid)
+          .where('status', isEqualTo: 'active')
+          .get();
+      if (activeTournaments.docs.length >= 3) {
+        throw Exception('Ücretsiz hesaplarda en fazla 3 aktif turnuva oluşturabilirsin.');
+      }
+    }
+
     final username = await _usernameFor(user);
     final inviteCode = await _generateInviteCode();
 
@@ -379,6 +393,64 @@ class TournamentRepository {
     });
   }
 
+  Future<void> addCoAdmin(String tournamentId, String uid) async {
+    await _tournaments.doc(tournamentId).update({
+      'adminIds': FieldValue.arrayUnion([uid]),
+    });
+  }
+
+  Future<void> removeCoAdmin(String tournamentId, String uid) async {
+    await _tournaments.doc(tournamentId).update({
+      'adminIds': FieldValue.arrayRemove([uid]),
+    });
+  }
+
+  Future<void> updateRoster(
+    String tournamentId,
+    List<RosterEntry> roster,
+  ) async {
+    await _tournaments.doc(tournamentId).update({
+      'roster': roster.map((e) => e.toMap()).toList(),
+    });
+  }
+
+  Future<void> voteMvp(String tournamentId, String nomineeUid) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return;
+    await _tournaments.doc(tournamentId)
+      .collection('votes')
+      .doc(uid)
+      .set({
+        'nomineeUid': nomineeUid,
+        'voterUid': uid,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+  }
+
+  Future<Map<String, int>> getMvpVotes(String tournamentId) async {
+    final snap = await _tournaments.doc(tournamentId)
+      .collection('votes').get();
+    final counts = <String, int>{};
+    for (final doc in snap.docs) {
+      final nominee = doc.data()['nomineeUid'] as String?;
+      if (nominee != null) counts[nominee] = (counts[nominee] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  Future<void> predictWinner(String tournamentId, String winnerUid) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return;
+    await _tournaments.doc(tournamentId)
+      .collection('predictions')
+      .doc(uid)
+      .set({
+        'winnerUid': winnerUid,
+        'predictorUid': uid,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+  }
+
   /// Mevcut kullanıcının `templates` koleksiyonuna bir şablon kaydeder.
   Future<void> saveAsTemplate({
     required String name,
@@ -517,4 +589,34 @@ final myTemplatesProvider =
             .map(TournamentTemplate.fromDoc)
             .toList(),
       );
+});
+
+/// Oturum açmış kullanıcının bu turnuva için yaptığı kazanan tahminini canlı dinler.
+final myTournamentPredictionProvider =
+    StreamProvider.family<String?, String>((ref, tournamentId) {
+  final user = ref.watch(currentUserProvider);
+  if (user == null) return Stream.value(null);
+  return ref
+      .watch(firestoreProvider)
+      .collection('tournaments')
+      .doc(tournamentId)
+      .collection('predictions')
+      .doc(user.uid)
+      .snapshots()
+      .map((doc) => doc.data()?['winnerUid'] as String?);
+});
+
+/// Oturum açmış kullanıcının bu turnuva için verdiği MVP oyunu canlı dinler.
+final myMvpVoteProvider =
+    StreamProvider.family<String?, String>((ref, tournamentId) {
+  final user = ref.watch(currentUserProvider);
+  if (user == null) return Stream.value(null);
+  return ref
+      .watch(firestoreProvider)
+      .collection('tournaments')
+      .doc(tournamentId)
+      .collection('votes')
+      .doc(user.uid)
+      .snapshots()
+      .map((doc) => doc.data()?['nomineeUid'] as String?);
 });

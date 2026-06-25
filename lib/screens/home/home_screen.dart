@@ -6,12 +6,16 @@ import 'package:go_router/go_router.dart';
 import '../../components/pitch_pattern_background.dart';
 import '../../core/time_ago.dart';
 import '../../core/utils/format_labels.dart';
-import '../../models/app_notification.dart';
+import '../../models/feed_item.dart';
 import '../../models/tournament.dart';
 import '../../router/route_paths.dart';
-import '../../services/notification_repository.dart';
+import '../../services/feed_repository.dart';
 import '../../services/tournament_repository.dart';
 import '../../services/user_repository.dart';
+import '../../services/season_repository.dart';
+import '../../components/skeleton_widgets.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../l10n/app_localizations.dart';
 
 /// Ana panel (Home Dashboard).
 ///
@@ -26,6 +30,7 @@ class HomeScreen extends ConsumerWidget {
     final username =
         ref.watch(userProfileProvider).asData?.value?.username ?? 'Oyuncu';
     final tournamentsAsync = ref.watch(myTournamentsStreamProvider);
+    final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
       appBar: _HomeAppBar(username: username),
@@ -36,11 +41,17 @@ class HomeScreen extends ConsumerWidget {
             color: Theme.of(context).colorScheme.primary,
             onRefresh: () async {
               ref.invalidate(myTournamentsStreamProvider);
-              ref.invalidate(notificationsProvider);
+              ref.invalidate(activityFeedProvider);
+              ref.invalidate(activeSeasonProvider);
             },
             child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
             children: [
+              const _SeasonCountdownWidget()
+                  .animate()
+                  .fadeIn(duration: 350.ms)
+                  .slideY(begin: 0.1, end: 0),
+              const SizedBox(height: 16),
               const _ActionButtons()
                   .animate()
                   .fadeIn(duration: 400.ms)
@@ -54,8 +65,8 @@ class HomeScreen extends ConsumerWidget {
               tournamentsAsync
                   .when(
                     loading: () => const _LoadingCard(),
-                    error: (_, __) => const _MessageCard(
-                      message: 'Turnuvalar yüklenemedi.',
+                    error: (_, __) => _MessageCard(
+                      message: l10n.tournamentsLoadFailed,
                     ),
                     data: (all) {
                       final active =
@@ -98,6 +109,7 @@ class _HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
     final initial =
         username.isEmpty ? '?' : username.substring(0, 1).toUpperCase();
 
@@ -105,7 +117,7 @@ class _HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
       centerTitle: false,
       titleSpacing: 20,
       title: Text(
-        'Merhaba, $username 👋',
+        l10n.welcomeMessage(username),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.titleLarge?.copyWith(
@@ -114,7 +126,7 @@ class _HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
       ),
       actions: [
         IconButton(
-          tooltip: 'Global Sıralama',
+          tooltip: l10n.leaderboard,
           onPressed: () => context.pushNamed(RoutePaths.leaderboardName),
           icon: const Icon(Icons.leaderboard_outlined),
         ),
@@ -147,12 +159,13 @@ class _ActionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Row(
       children: [
         Expanded(
           child: _ActionButton(
             icon: Icons.emoji_events_outlined,
-            label: 'Turnuva Oluştur',
+            label: l10n.createTournament,
             onPressed: () =>
                 context.pushNamed(RoutePaths.createTournamentName),
           ),
@@ -161,7 +174,7 @@ class _ActionButtons extends StatelessWidget {
         Expanded(
           child: _ActionButton(
             icon: Icons.link,
-            label: 'Turnuvaya Katıl',
+            label: l10n.joinTournament,
             onPressed: () => context.pushNamed(RoutePaths.joinTournamentName),
           ),
         ),
@@ -246,6 +259,7 @@ class _QuickStats extends ConsumerWidget {
     final matches = profile?.totalMatches ?? 0;
     final winRate = profile?.winRate ?? 0;
     final goals = profile?.totalGoalsScored ?? 0;
+    final l10n = AppLocalizations.of(context)!;
 
     return Row(
       children: [
@@ -253,7 +267,7 @@ class _QuickStats extends ConsumerWidget {
           child: _StatTile(
             icon: Icons.sports_soccer,
             value: '$matches',
-            label: 'Toplam Maç',
+            label: l10n.totalMatches,
           ),
         ),
         const SizedBox(width: 12),
@@ -261,7 +275,7 @@ class _QuickStats extends ConsumerWidget {
           child: _StatTile(
             icon: Icons.emoji_events_outlined,
             value: '%$winRate',
-            label: 'Galibiyet',
+            label: l10n.wins,
           ),
         ),
         const SizedBox(width: 12),
@@ -269,7 +283,7 @@ class _QuickStats extends ConsumerWidget {
           child: _StatTile(
             icon: Icons.sports_score_outlined,
             value: '$goals',
-            label: 'Toplam Gol',
+            label: l10n.totalGoals,
           ),
         ),
       ],
@@ -330,32 +344,34 @@ class _StatTile extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Son aktiviteler (bildirimler)
+// Arkadaş aktivitesi (Feed)
 // ---------------------------------------------------------------------------
 
-/// Kullanıcının son 10 bildirimini (notifications koleksiyonu) gösteren bölüm.
+/// Arkadaşlarının son aktivitelerini gösteren bölüm.
 class _RecentActivity extends ConsumerWidget {
   const _RecentActivity();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(notificationsProvider);
+    final async = ref.watch(activityFeedProvider);
+    final l10n = AppLocalizations.of(context)!;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle('Son Aktiviteler'),
+        _SectionTitle(l10n.recentActivity),
         const SizedBox(height: 14),
         async.when(
-          loading: () => const SizedBox(
-            height: 80,
-            child: Center(child: CircularProgressIndicator()),
+          loading: () => Column(
+            children: List.generate(3, (_) => const SkeletonListTile()),
           ),
           error: (_, __) =>
-              const _MessageCardBody(message: 'Aktiviteler yüklenemedi.'),
+              _MessageCardBody(message: l10n.activityLoadFailed),
           data: (items) {
             if (items.isEmpty) {
-              return const _MessageCardBody(message: 'Henüz aktivite yok.');
+              return _MessageCardBody(
+                message: l10n.noActivityYet,
+              );
             }
             final recent = items.take(10).toList();
             return Column(
@@ -373,26 +389,18 @@ class _RecentActivity extends ConsumerWidget {
   }
 }
 
-/// Tek bir bildirim/aktivite satırı: ikon + mesaj + zaman.
+/// Tek bir aktivite satırı: aktör resmi + mesaj + zaman.
 class _ActivityTile extends StatelessWidget {
   const _ActivityTile({required this.item});
 
-  final AppNotification item;
-
-  IconData get _icon => switch (item.type) {
-        NotificationType.matchConfirm => Icons.scoreboard_outlined,
-        NotificationType.friendRequest => Icons.person_add_alt,
-        NotificationType.tournamentInvite => Icons.emoji_events_outlined,
-        NotificationType.tournamentComplete => Icons.emoji_events,
-        NotificationType.generic => Icons.notifications_outlined,
-      };
+  final FeedItem item;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final time = timeAgoTr(item.createdAt);
-    final message = item.message.isNotEmpty ? item.message : item.title;
+    final l10n = AppLocalizations.of(context)!;
+    final time = timeAgo(item.createdAt, l10n.localeName);
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -402,16 +410,22 @@ class _ActivityTile extends StatelessWidget {
         border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: scheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(_icon, color: scheme.primary, size: 20),
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: scheme.primary.withValues(alpha: 0.15),
+            backgroundImage: item.actorPhotoUrl != null && item.actorPhotoUrl!.isNotEmpty
+                ? CachedNetworkImageProvider(item.actorPhotoUrl!)
+                : null,
+            child: item.actorPhotoUrl == null || item.actorPhotoUrl!.isEmpty
+                ? Text(
+                    item.actorName.isEmpty ? '?' : item.actorName.substring(0, 1).toUpperCase(),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  )
+                : null,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -419,9 +433,7 @@ class _ActivityTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  message,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                  item.message,
                   style: theme.textTheme.bodyMedium?.copyWith(height: 1.3),
                 ),
                 if (time.isNotEmpty) ...[
@@ -436,6 +448,14 @@ class _ActivityTile extends StatelessWidget {
               ],
             ),
           ),
+          if (item.tournamentId != null)
+            IconButton(
+              icon: Icon(Icons.arrow_forward_ios, size: 14, color: scheme.primary),
+              onPressed: () => context.pushNamed(
+                RoutePaths.tournamentDetailName,
+                pathParameters: {'id': item.tournamentId!},
+              ),
+            ),
         ],
       ),
     );
@@ -483,10 +503,11 @@ class _ActiveTournaments extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle('Aktif Turnuvalar'),
+        _SectionTitle(l10n.activeTournaments),
         const SizedBox(height: 14),
         SizedBox(
           height: 168,
@@ -514,6 +535,7 @@ class _TournamentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
 
     return SizedBox(
       width: 240,
@@ -559,7 +581,7 @@ class _TournamentCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    '${tournament.participants.length} oyuncu',
+                    l10n.participantCountLabel(tournament.participants.length),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
@@ -587,7 +609,7 @@ class _TournamentCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      tournament.isWaiting ? 'Bekleme lobisi' : 'Devam ediyor',
+                      tournament.isWaiting ? l10n.lobbyStatus : l10n.ongoingStatus,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: scheme.primary,
                         fontWeight: FontWeight.w600,
@@ -614,6 +636,7 @@ class _FormatBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -622,7 +645,7 @@ class _FormatBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
-        tournamentFormatLabel(format).toUpperCase(),
+        tournamentFormatLabel(format, l10n).toUpperCase(),
         style: theme.textTheme.labelSmall?.copyWith(
           color: scheme.primary,
           fontWeight: FontWeight.w700,
@@ -645,11 +668,12 @@ class _EmptyTournaments extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle('Aktif Turnuvalar'),
+        _SectionTitle(l10n.activeTournaments),
         const SizedBox(height: 14),
         Container(
           width: double.infinity,
@@ -668,14 +692,14 @@ class _EmptyTournaments extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'Henüz turnuvan yok',
+                l10n.noTournamentsYet,
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
-                'Arkadaşlarınla rekabete başlamak için ilk turnuvanı oluştur.',
+                l10n.noTournamentsYetDesc,
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: scheme.onSurfaceVariant,
@@ -686,7 +710,7 @@ class _EmptyTournaments extends StatelessWidget {
                 onPressed: () =>
                     context.pushNamed(RoutePaths.createTournamentName),
                 icon: const Icon(Icons.add, size: 20),
-                label: const Text('İlk turnuvanı oluştur'),
+                label: Text(l10n.createFirstTournament),
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size(0, 48),
                   padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -706,10 +730,11 @@ class _LoadingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle('Aktif Turnuvalar'),
+        _SectionTitle(l10n.activeTournaments),
         const SizedBox(height: 14),
         const SizedBox(
           height: 120,
@@ -728,12 +753,13 @@ class _MessageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle('Aktif Turnuvalar'),
+        _SectionTitle(l10n.activeTournaments),
         const SizedBox(height: 14),
         Container(
           width: double.infinity,
@@ -757,3 +783,57 @@ class _MessageCard extends StatelessWidget {
 }
 
 /// Turnuva formatı kod adını kısa Türkçe etikete çevirir.
+
+class _SeasonCountdownWidget extends ConsumerWidget {
+  const _SeasonCountdownWidget();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeSeasonAsync = ref.watch(activeSeasonProvider);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+
+    return activeSeasonAsync.when(
+      data: (season) {
+        if (season == null) return const SizedBox.shrink();
+        final daysRemaining = DateTime.now().isAfter(season.endDate)
+            ? 0
+            : season.endDate.difference(DateTime.now()).inDays;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          decoration: BoxDecoration(
+            color: scheme.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: scheme.primary.withValues(alpha: 0.25),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.calendar_today_outlined,
+                size: 16,
+                color: scheme.primary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  l10n.seasonCountdownLabel(season.name, daysRemaining),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: scheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+}

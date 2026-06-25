@@ -83,6 +83,18 @@ class BadgeDefinitions {
       description: '0-2 geriden gelerek bir maçı kazandın.',
       icon: Icons.trending_up,
     ),
+    BadgeDefinition(
+      id: 'prophet',
+      name: 'Kahin',
+      description: 'Turnuva kazananını doğru tahmin etti',
+      icon: Icons.auto_awesome,
+    ),
+    BadgeDefinition(
+      id: 'mvp',
+      name: 'En Değerli Oyuncu',
+      description: 'Turnuvanın MVP\'si seçildi',
+      icon: Icons.star,
+    ),
   ];
 
   /// Verilen id'ye sahip rozet tanımını döner (yoksa null).

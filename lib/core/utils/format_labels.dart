@@ -1,29 +1,30 @@
 import '../../models/tournament.dart';
+import '../../l10n/app_localizations.dart';
 
-/// Turnuva formatının kullanıcıya gösterilecek Türkçe etiketi.
-String tournamentFormatLabel(String format) {
+/// Turnuva formatının kullanıcıya gösterilecek locale duyarlı etiketi.
+String tournamentFormatLabel(String format, AppLocalizations l10n) {
   switch (format) {
     case 'league':
-      return 'Lig';
+      return l10n.formatLeague;
     case 'knockout':
-      return 'Eleme';
+      return l10n.formatKnockout;
     case 'groupKnockout':
-      return 'Grup + Eleme';
+      return l10n.formatGroupKnockout;
     case 'championsLeague':
-      return 'Şampiyonlar Ligi';
+      return l10n.formatChampionsLeague;
     default:
       return format;
   }
 }
 
-/// Puan eşitliği (tiebreaker) modunun Türkçe etiketi.
-String tiebreakerModeLabel(TiebreakerMode mode) {
+/// Puan eşitliği (tiebreaker) modunun locale duyarlı etiketi.
+String tiebreakerModeLabel(TiebreakerMode mode, AppLocalizations l10n) {
   switch (mode) {
     case TiebreakerMode.fifa:
-      return 'FIFA Stili';
+      return l10n.tiebreakerFifa;
     case TiebreakerMode.uefa:
-      return 'UEFA Stili';
+      return l10n.tiebreakerUefa;
     case TiebreakerMode.hybrid:
-      return 'Karma';
+      return l10n.tiebreakerHybrid;
   }
 }

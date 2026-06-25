@@ -11,9 +11,12 @@ import '../screens/notifications/notifications_screen.dart';
 import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/profile/edit_profile_screen.dart';
 import '../screens/profile/profile_screen.dart';
+import '../screens/profile/badge_showcase_screen.dart';
 import '../screens/profile/user_profile_screen.dart';
 import '../screens/settings/privacy_policy_screen.dart';
 import '../screens/settings/settings_screen.dart';
+import '../screens/settings/premium_screen.dart';
+import '../screens/settings/theme_screen.dart';
 import '../screens/social/friend_group_screen.dart';
 import '../screens/social/social_screen.dart';
 import '../screens/splash/splash_screen.dart';
@@ -188,6 +191,18 @@ class AppRouter {
         builder: (context, state) => const SettingsScreen(),
       ),
       GoRoute(
+        path: RoutePaths.premium,
+        name: RoutePaths.premiumName,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => const PremiumScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.theme,
+        name: RoutePaths.themeName,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => const ThemeScreen(),
+      ),
+      GoRoute(
         path: RoutePaths.privacyPolicy,
         name: RoutePaths.privacyPolicyName,
         parentNavigatorKey: _rootKey,
@@ -198,6 +213,12 @@ class AppRouter {
         name: RoutePaths.editProfileName,
         parentNavigatorKey: _rootKey,
         builder: (context, state) => const EditProfileScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.badgeShowcase,
+        name: RoutePaths.badgeShowcaseName,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => const BadgeShowcaseScreen(),
       ),
       GoRoute(
         path: RoutePaths.friendGroup,

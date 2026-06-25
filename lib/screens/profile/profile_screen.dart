@@ -8,8 +8,11 @@ import '../../models/badge_definitions.dart';
 import '../../models/tournament.dart';
 import '../../models/user_profile.dart';
 import '../../router/route_paths.dart';
+import '../../services/share_service.dart';
 import '../../services/tournament_repository.dart';
 import '../../services/user_repository.dart';
+import '../../widgets/achievement_share_card.dart';
+import 'widgets/elo_chart.dart';
 
 /// Profil sekmesi.
 ///
@@ -41,13 +44,21 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
-class _ProfileView extends ConsumerWidget {
+class _ProfileView extends ConsumerStatefulWidget {
   const _ProfileView({required this.profile});
 
   final UserProfile profile;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ProfileView> createState() => _ProfileViewState();
+}
+
+class _ProfileViewState extends ConsumerState<_ProfileView> {
+  final GlobalKey _shareKey = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = widget.profile;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final tournamentsAsync = ref.watch(myTournamentsStreamProvider);
@@ -56,90 +67,117 @@ class _ProfileView extends ConsumerWidget {
             .toList() ??
         const <Tournament>[];
 
-    return CustomScrollView(
-      slivers: [
-        SliverToBoxAdapter(child: _Header(profile: profile)),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 56, 16, 0),
-            child: Column(
-              children: [
-                Text(
-                  profile.username,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                if (profile.favoriteTeam.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.favorite, size: 14, color: scheme.primary),
-                      const SizedBox(width: 6),
+    return Stack(
+      children: [
+        Positioned(
+          left: -1000,
+          top: -1000,
+          child: RepaintBoundary(
+            key: _shareKey,
+            child: AchievementShareCard(profile: profile),
+          ),
+        ),
+        CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: _Header(
+                profile: profile,
+                shareKey: _shareKey,
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 56, 16, 0),
+                child: Column(
+                  children: [
+                    Text(
+                      profile.username,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (profile.favoriteTeam.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.favorite, size: 14, color: scheme.primary),
+                          const SizedBox(width: 6),
+                          Text(
+                            profile.favoriteTeam,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (profile.bio.isNotEmpty) ...[
+                      const SizedBox(height: 12),
                       Text(
-                        profile.favoriteTeam,
+                        profile.bio,
+                        textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
+                          color: scheme.onSurface,
+                          height: 1.4,
                         ),
                       ),
                     ],
-                  ),
-                ],
-                if (profile.bio.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    profile.bio,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurface,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 20),
-                _StatsRow(profile: profile),
-                const SizedBox(height: 28),
-                _SectionTitle(icon: Icons.show_chart, title: 'Son Form'),
-                const SizedBox(height: 12),
-                const _FormChart(),
-                const SizedBox(height: 28),
-                _SectionTitle(icon: Icons.percent, title: 'Galibiyet Oranı'),
-                const SizedBox(height: 12),
-                _WinRateGauge(profile: profile),
-                const SizedBox(height: 28),
-                _SectionTitle(icon: Icons.workspace_premium, title: 'Rozetler'),
-                const SizedBox(height: 12),
-                _BadgeGrid(earned: profile.badges),
-                const SizedBox(height: 28),
-                _SectionTitle(icon: Icons.history, title: 'Geçmiş Turnuvalar'),
-                const SizedBox(height: 12),
-              ],
-            ),
-          ),
-        ),
-        if (past.isEmpty)
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16, 0, 16, 32),
-              child: _InlineEmpty(message: 'Henüz tamamlanan turnuvan yok.'),
-            ),
-          )
-        else
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
-            sliver: SliverList.separated(
-              itemCount: past.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, index) => _PastTournamentTile(
-                tournament: past[index],
-                onTap: () => context.pushNamed(
-                  RoutePaths.tournamentDetailName,
-                  pathParameters: {'id': past[index].id},
+                    const SizedBox(height: 20),
+                    _StatsRow(profile: profile),
+                    const SizedBox(height: 12),
+                    _EloChip(profile: profile),
+                    const SizedBox(height: 28),
+                    _SectionTitle(icon: Icons.show_chart, title: 'Son Form'),
+                    const SizedBox(height: 12),
+                    const _FormChart(),
+                    const SizedBox(height: 28),
+                    _SectionTitle(icon: Icons.percent, title: 'Galibiyet Oranı'),
+                    const SizedBox(height: 12),
+                    _WinRateGauge(profile: profile),
+                    const SizedBox(height: 28),
+                    _SectionTitle(icon: Icons.bolt, title: 'ELO Geçmişi'),
+                    const SizedBox(height: 12),
+                    EloChart(history: profile.eloHistory),
+                    const SizedBox(height: 28),
+                    const _ShowcaseHeader(),
+                    const SizedBox(height: 12),
+                    _ShowcaseGrid(profile: profile),
+                    const SizedBox(height: 28),
+                    _SectionTitle(icon: Icons.workspace_premium, title: 'Rozetler'),
+                    const SizedBox(height: 12),
+                    _BadgeGrid(earned: profile.badges),
+                    const SizedBox(height: 28),
+                    _SectionTitle(icon: Icons.history, title: 'Geçmiş Turnuvalar'),
+                    const SizedBox(height: 12),
+                  ],
                 ),
               ),
             ),
-          ),
+            if (past.isEmpty)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, 32),
+                  child: _InlineEmpty(message: 'Henüz tamamlanan turnuvan yok.'),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                sliver: SliverList.separated(
+                  itemCount: past.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) => _PastTournamentTile(
+                    tournament: past[index],
+                    onTap: () => context.pushNamed(
+                      RoutePaths.tournamentDetailName,
+                      pathParameters: {'id': past[index].id},
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ],
     );
   }
@@ -147,9 +185,10 @@ class _ProfileView extends ConsumerWidget {
 
 /// Kapak alanı + avatar + ayarlar ikonu.
 class _Header extends StatelessWidget {
-  const _Header({required this.profile});
+  const _Header({required this.profile, required this.shareKey});
 
   final UserProfile profile;
+  final GlobalKey shareKey;
 
   @override
   Widget build(BuildContext context) {
@@ -200,6 +239,22 @@ class _Header extends StatelessWidget {
                   icon: const Icon(Icons.edit_outlined),
                   tooltip: 'Profili Düzenle',
                   onPressed: () => context.pushNamed(RoutePaths.editProfileName),
+                ),
+              ),
+            ),
+          ),
+          // Paylaş ikonu (sağ üst, ayarların solunda).
+          Positioned(
+            top: 8,
+            right: 56,
+            child: SafeArea(
+              child: Material(
+                color: scheme.surface.withValues(alpha: 0.85),
+                shape: const CircleBorder(),
+                child: IconButton(
+                  icon: const Icon(Icons.share_outlined),
+                  tooltip: 'Paylaş',
+                  onPressed: () => _shareAchievement(context, profile, shareKey),
                 ),
               ),
             ),
@@ -771,6 +826,67 @@ void _showBadgeDetail(
   );
 }
 
+/// ELO puanını ve son maçtaki değişimi gösteren chip satırı.
+class _EloChip extends StatelessWidget {
+  const _EloChip({required this.profile});
+
+  final UserProfile profile;
+
+  static const Color _upColor = Color(0xFF2E9E5B);
+  static const Color _downColor = Color(0xFFD64545);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    final history = profile.eloHistory;
+    final lastChange =
+        history.isNotEmpty ? (history.last['change'] as num?)?.toInt() : null;
+
+    Color? changeColor;
+    String? changeText;
+    if (lastChange != null && lastChange != 0) {
+      changeColor = lastChange > 0 ? _upColor : _downColor;
+      changeText = lastChange > 0 ? '+$lastChange ↑' : '$lastChange ↓';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outline.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.bolt, size: 18, color: scheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            'ELO: ${profile.eloRating}',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: scheme.primary,
+            ),
+          ),
+          if (changeText != null) ...[
+            const SizedBox(width: 10),
+            Text(
+              changeText,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: changeColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _PastTournamentTile extends StatelessWidget {
   const _PastTournamentTile({required this.tournament, required this.onTap});
 
@@ -936,5 +1052,155 @@ class _CenterMessage extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Başarım Vitrini Widgets & Paylaşım Metotları
+// ---------------------------------------------------------------------------
+
+class _ShowcaseHeader extends StatelessWidget {
+  const _ShowcaseHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.star_outline, size: 20, color: scheme.primary),
+            const SizedBox(width: 8),
+            Text(
+              'Vitrin',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        TextButton(
+          onPressed: () => context.pushNamed(RoutePaths.badgeShowcaseName),
+          child: const Text('Düzenle'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ShowcaseGrid extends StatelessWidget {
+  const _ShowcaseGrid({required this.profile});
+
+  final UserProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final showcase = profile.showcaseBadges;
+
+    return Row(
+      children: List.generate(3, (index) {
+        final hasBadge = index < showcase.length;
+        final badgeId = hasBadge ? showcase[index] : null;
+        final badge = badgeId != null ? BadgeDefinitions.byId(badgeId) : null;
+
+        return Expanded(
+          child: Container(
+            margin: EdgeInsets.only(
+              left: index == 0 ? 0 : 6,
+              right: index == 2 ? 0 : 6,
+            ),
+            child: AspectRatio(
+              aspectRatio: 1.1,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => context.pushNamed(RoutePaths.badgeShowcaseName),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: hasBadge
+                          ? scheme.primary.withValues(alpha: 0.10)
+                          : scheme.surface.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: hasBadge
+                            ? scheme.primary.withValues(alpha: 0.4)
+                            : scheme.outline.withValues(alpha: 0.15),
+                      ),
+                    ),
+                    child: hasBadge && badge != null
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                badge.icon,
+                                size: 28,
+                                color: scheme.primary,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                badge.name,
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: scheme.onSurface,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.add,
+                                size: 28,
+                                color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+Future<void> _shareAchievement(
+  BuildContext context,
+  UserProfile user,
+  GlobalKey boundaryKey,
+) async {
+  try {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Paylaşım kartı hazırlanıyor...'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+
+    // Wait a brief moment to ensure layout/paint is completed if it just mounted
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    await ShareService.captureAndShare(
+      boundaryKey: boundaryKey,
+      text: "${user.username} Competra'da ${user.totalWins} galibiyet! 🏆",
+    );
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Paylaşım hatası: $e')),
+      );
+    }
   }
 }

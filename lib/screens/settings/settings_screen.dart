@@ -6,9 +6,10 @@ import '../../router/route_paths.dart';
 import '../../services/app_settings.dart';
 import '../../services/auth_service.dart';
 import '../../services/firebase_providers.dart';
+import '../../l10n/app_localizations.dart';
 
-/// Ayarlar ekranı: tema (açık/koyu) anahtarı, gizlilik politikası, oturum
-/// kapatma ve hesap silme.
+/// Ayarlar ekranı: tema (açık/koyu) anahtarı, dil seçimi, gizlilik politikası,
+/// oturum kapatma ve hesap silme.
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -18,53 +19,108 @@ class SettingsScreen extends ConsumerWidget {
     final scheme = theme.colorScheme;
     final themeMode = ref.watch(themeModeProvider);
     final isDark = themeMode == ThemeMode.dark;
+    final l10n = AppLocalizations.of(context)!;
+    final selectedLocale = ref.watch(localeProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Ayarlar')),
+      appBar: AppBar(title: Text(l10n.settings)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _SectionLabel('Görünüm'),
+          _SectionLabel(l10n.appearance),
           _Card(
-            child: SwitchListTile(
-              value: isDark,
-              onChanged: (value) {
-                ref.read(themeModeProvider.notifier).set(
-                      value ? ThemeMode.dark : ThemeMode.light,
-                    );
-              },
-              secondary: Icon(
-                isDark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
-                color: scheme.primary,
-              ),
-              title: const Text('Koyu Tema'),
-              subtitle: Text(
-                isDark ? 'Koyu görünüm açık' : 'Açık görünüm açık',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
+            child: Column(
+              children: [
+                SwitchListTile(
+                  value: isDark,
+                  onChanged: (value) {
+                    ref.read(themeModeProvider.notifier).set(
+                          value ? ThemeMode.dark : ThemeMode.light,
+                        );
+                  },
+                  secondary: Icon(
+                    isDark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+                    color: scheme.primary,
+                  ),
+                  title: Text(l10n.darkTheme),
+                  subtitle: Text(
+                    isDark ? l10n.darkThemeEnabled : l10n.lightThemeEnabled,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
-              ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(Icons.palette_outlined, color: scheme.primary),
+                  title: Text(l10n.themesAndCosmetics),
+                  subtitle: Text(l10n.themesAndCosmeticsDesc),
+                  trailing: Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+                  onTap: () => context.pushNamed(RoutePaths.themeName),
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: DropdownButtonFormField<Locale?>(
+                    value: selectedLocale,
+                    decoration: InputDecoration(
+                      prefixIcon: Icon(Icons.language, color: scheme.primary),
+                      labelText: l10n.language,
+                      border: InputBorder.none,
+                    ),
+                    items: [
+                      DropdownMenuItem(
+                        value: null,
+                        child: Text(l10n.deviceLanguage),
+                      ),
+                      const DropdownMenuItem(
+                        value: Locale('tr'),
+                        child: Text('🇹🇷 Türkçe'),
+                      ),
+                      const DropdownMenuItem(
+                        value: Locale('en'),
+                        child: Text('🇬🇧 English'),
+                      ),
+                    ],
+                    onChanged: (locale) {
+                      ref.read(localeProvider.notifier).setLocale(locale);
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 24),
 
-          _SectionLabel('Genel'),
+          _SectionLabel(l10n.general),
           _Card(
             child: ListTile(
               leading: Icon(Icons.privacy_tip_outlined, color: scheme.primary),
-              title: const Text('Gizlilik Politikası'),
+              title: Text(l10n.privacyPolicy),
               trailing: Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
               onTap: () => context.pushNamed(RoutePaths.privacyPolicyName),
             ),
           ),
           const SizedBox(height: 24),
 
-          _SectionLabel('Hesap'),
+          _SectionLabel(l10n.subscription),
+          _Card(
+            child: ListTile(
+              leading: const Icon(Icons.workspace_premium, color: Color(0xFFFFD700)),
+              title: const Text('Competra Pro'),
+              subtitle: Text(l10n.proSubscriptionDesc),
+              trailing: Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+              onTap: () => context.pushNamed(RoutePaths.premiumName),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          _SectionLabel(l10n.account),
           _Card(
             child: ListTile(
               leading: Icon(Icons.logout, color: scheme.error),
               title: Text(
-                'Çıkış Yap',
+                l10n.signOut,
                 style: TextStyle(
                   color: scheme.error,
                   fontWeight: FontWeight.w600,
@@ -75,19 +131,19 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
 
-          _SectionLabel('Tehlikeli Bölge'),
+          _SectionLabel(l10n.dangerZone),
           _Card(
             child: ListTile(
               leading: Icon(Icons.delete_forever_outlined, color: scheme.error),
               title: Text(
-                'Hesabı Sil',
+                l10n.deleteAccount,
                 style: TextStyle(
                   color: scheme.error,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               subtitle: Text(
-                'Tüm verilerin kalıcı olarak silinir',
+                l10n.deleteAccountDesc,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),
@@ -101,20 +157,21 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _confirmSignOut(BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Çıkış Yap'),
-        content: const Text('Oturumu kapatmak istediğine emin misin?'),
+        title: Text(l10n.signOut),
+        content: Text(l10n.logoutConfirm),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Vazgeç'),
+            child: Text(l10n.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
             child: Text(
-              'Çıkış Yap',
+              l10n.signOut,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
@@ -132,26 +189,24 @@ class SettingsScreen extends ConsumerWidget {
   /// İki aşamalı hesap silme: önce uyarı onayı, sonra (e-posta hesaplarında)
   /// şifre doğrulaması; ardından [AuthService.deleteAccount] çağrılır.
   Future<void> _deleteAccountFlow(BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context)!;
     // Aşama 1: emin misin? uyarısı.
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
         final scheme = Theme.of(context).colorScheme;
         return AlertDialog(
-          title: const Text('Emin misin?'),
-          content: const Text(
-            'Hesabını silersen tüm turnuva verilerin, istatistiklerin ve '
-            'rozetlerin kalıcı olarak silinir. Bu işlem geri alınamaz.',
-          ),
+          title: Text(l10n.areYouSure),
+          content: Text(l10n.deleteAccountConfirmDesc),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Vazgeç'),
+              child: Text(l10n.cancel),
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(true),
               child: Text(
-                'Devam Et',
+                l10n.next,
                 style: TextStyle(color: scheme.error),
               ),
             ),
@@ -201,7 +256,7 @@ class SettingsScreen extends ConsumerWidget {
       if (!context.mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Hesap silinemedi, lütfen tekrar dene.')),
+        SnackBar(content: Text(l10n.deleteAccountFailed)),
       );
     }
   }
@@ -229,21 +284,20 @@ class _PasswordPromptDialogState extends State<_PasswordPromptDialog> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
     return AlertDialog(
-      title: const Text('Şifreni Gir'),
+      title: Text(l10n.enterPassword),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
-            'Güvenlik için hesabını silmeden önce şifreni doğrula.',
-          ),
+          Text(l10n.deleteAccountPasswordDesc),
           const SizedBox(height: 16),
           TextField(
             controller: _controller,
             obscureText: _obscure,
             autofocus: true,
             decoration: InputDecoration(
-              labelText: 'Şifre',
+              labelText: l10n.passwordLabel,
               suffixIcon: IconButton(
                 icon: Icon(
                   _obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
@@ -257,12 +311,12 @@ class _PasswordPromptDialogState extends State<_PasswordPromptDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Vazgeç'),
+          child: Text(l10n.cancel),
         ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(_controller.text),
           child: Text(
-            'Hesabı Sil',
+            l10n.deleteAccount,
             style: TextStyle(color: scheme.error),
           ),
         ),

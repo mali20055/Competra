@@ -63,11 +63,20 @@ class RoutePaths {
   static const String settings = '/settings';
   static const String settingsName = 'settings';
 
+  static const String premium = '/premium';
+  static const String premiumName = 'premium';
+
+  static const String theme = '/theme';
+  static const String themeName = 'theme';
+
   static const String privacyPolicy = '/privacy-policy';
   static const String privacyPolicyName = 'privacy-policy';
 
   static const String editProfile = '/edit-profile';
   static const String editProfileName = 'edit-profile';
+
+  static const String badgeShowcase = '/badge-showcase';
+  static const String badgeShowcaseName = 'badge-showcase';
 
   /// Arkadaş grubu detayı / sıralama tablosu — `:id` path parametresi alır.
   static const String friendGroup = '/friend-group/:id';

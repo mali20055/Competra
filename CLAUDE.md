@@ -250,3 +250,6 @@ firebase deploy --only firestore:rules --project competra-9e396
 - i18n: ekranlardaki sabit Türkçe string'leri `AppLocalizations`'a taşımak.
 - Profil fotoğrafı yükleme (maç kartı avatarları şu an baş harf placeholder).
 - iOS push yapılandırmasını Mac'te tamamlamak (Info.plist notuna bakın).
+
+## RevenueCat Notu ⚠️
+- `main.dart` içerisindeki RevenueCat public key'i (`YOUR_REVENUECAT_PUBLIC_KEY`) placeholder olarak bırakılmıştır. Gerçek üretim veya test anahtarları entegre edilmelidir.

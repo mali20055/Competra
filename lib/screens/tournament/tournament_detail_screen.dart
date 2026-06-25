@@ -7,9 +7,11 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../core/utils/format_labels.dart';
 import '../../models/tournament.dart';
+import '../../models/roster_entry.dart';
 import '../../router/route_paths.dart';
 import '../../services/firebase_providers.dart';
 import '../../services/tournament_repository.dart';
+import '../../components/player_avatar.dart';
 
 /// Turnuvanın QR kodunu ve davet kodunu bir modal bottom sheet'te gösterir.
 void _showQrModal(BuildContext context, Tournament tournament) {
@@ -127,6 +129,16 @@ class _DetailView extends ConsumerWidget {
     }
 
     final matchesAsync = ref.watch(matchesStreamProvider(tournament.id));
+    final user = ref.watch(currentUserProvider);
+    final isOwner = user != null && user.uid == tournament.ownerId;
+    final isAdmin = user != null && (user.uid == tournament.ownerId || tournament.adminIds.contains(user.uid));
+    final isParticipant = user != null && tournament.participants.any((p) => p.uid == user.uid);
+    final scheme = Theme.of(context).colorScheme;
+
+    final completedAt = tournament.completedAt;
+    final isWithin24Hours = completedAt != null &&
+        DateTime.now().difference(completedAt).inHours < 24;
+    final hasMvp = tournament.mvpUid != null && tournament.mvpUid!.isNotEmpty;
 
     return DefaultTabController(
       length: 3,
@@ -134,6 +146,12 @@ class _DetailView extends ConsumerWidget {
         appBar: AppBar(
           title: Text(tournament.name),
           actions: [
+            if (isOwner)
+              IconButton(
+                icon: const Icon(Icons.admin_panel_settings_outlined),
+                tooltip: 'Yöneticileri Yönet',
+                onPressed: () => _showAdminManagementSheet(context, ref, tournament),
+              ),
             if (tournament.isCompleted)
               IconButton(
                 icon: const Icon(Icons.celebration_outlined),
@@ -141,6 +159,40 @@ class _DetailView extends ConsumerWidget {
                 onPressed: () => context.pushNamed(
                   RoutePaths.tournamentWrappedName,
                   pathParameters: {'id': tournament.id},
+                ),
+              ),
+            if (tournament.isCompleted && isWithin24Hours && isParticipant)
+              () {
+                final myVote = ref.watch(myMvpVoteProvider(tournament.id)).value;
+                final hasVoted = myVote != null;
+                return TextButton.icon(
+                  onPressed: () => _showMvpVotingSheet(context, ref, tournament),
+                  icon: Icon(
+                    hasVoted ? Icons.check_circle : Icons.star_border,
+                    size: 18,
+                    color: hasVoted ? Colors.green : scheme.primary,
+                  ),
+                  label: Text(
+                    hasVoted ? 'Oy Verdim ✓' : 'MVP Oyla',
+                    style: TextStyle(
+                      color: hasVoted ? Colors.green : scheme.primary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                );
+              }(),
+            if (tournament.isCompleted && isAdmin && !hasMvp)
+              TextButton.icon(
+                onPressed: () => _determineMvp(context, ref, tournament),
+                icon: const Icon(Icons.stars, color: Colors.amber, size: 18),
+                label: const Text(
+                  'MVP Belirle',
+                  style: TextStyle(
+                    color: Colors.amber,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             IconButton(
@@ -257,6 +309,507 @@ class _DetailView extends ConsumerWidget {
   }
 }
 
+void _showMvpVotingSheet(BuildContext context, WidgetRef ref, Tournament tournament) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) {
+      final theme = Theme.of(context);
+      final scheme = theme.colorScheme;
+      return DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        minChildSize: 0.4,
+        expand: false,
+        builder: (context, scrollController) {
+          return Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'En Değerli Oyuncu\'yu Seç (MVP)',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Bu turnuvada en iyi performans gösteren oyuncuya oy verin.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.builder(
+                    controller: scrollController,
+                    itemCount: tournament.participants.length,
+                    itemBuilder: (context, index) {
+                      final p = tournament.participants[index];
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundColor: scheme.primaryContainer,
+                          child: Text(
+                            p.username.substring(0, p.username.length >= 2 ? 2 : 1).toUpperCase(),
+                            style: TextStyle(color: scheme.onPrimaryContainer, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        title: Text(p.username),
+                        onTap: () async {
+                          Navigator.of(context).pop();
+                          await ref.read(tournamentRepositoryProvider).voteMvp(tournament.id, p.uid);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Oyunuz alındı!')),
+                            );
+                          }
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+Future<void> _determineMvp(BuildContext context, WidgetRef ref, Tournament tournament) async {
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => const Center(child: CircularProgressIndicator()),
+  );
+
+  try {
+    final votes = await ref.read(tournamentRepositoryProvider).getMvpVotes(tournament.id);
+    if (!context.mounted) return;
+    Navigator.of(context).pop(); // dismiss loading
+
+    if (votes.isEmpty) {
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Oy Yok'),
+          content: const Text('Bu turnuvada henüz hiç oylama yapılmamış. MVP\'yi manuel belirlemek ister misiniz?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _showManualMvpSelectionSheet(context, ref, tournament);
+              },
+              child: const Text('Oyuncu Seç'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('İptal'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    String? winnerUid;
+    int maxVotes = -1;
+    votes.forEach((uid, count) {
+      if (count > maxVotes) {
+        maxVotes = count;
+        winnerUid = uid;
+      }
+    });
+
+    if (winnerUid != null) {
+      final winnerParticipant = tournament.participants.firstWhere(
+        (p) => p.uid == winnerUid,
+        orElse: () => const Participant(uid: '', username: 'Bilinmeyen Oyuncu'),
+      );
+
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('MVP Belirle'),
+          content: Text('En çok oy alan oyuncu: ${winnerParticipant.username} ($maxVotes oy).\nBu oyuncuyu turnuvanın MVP\'si olarak onaylıyor musunuz?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('İptal'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Onayla'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm == true && context.mounted) {
+        await ref.read(firestoreProvider).collection('tournaments').doc(tournament.id).update({
+          'mvpUid': winnerUid,
+        });
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('MVP belirlendi: ${winnerParticipant.username}! ⭐️')),
+          );
+        }
+      }
+    }
+  } catch (e) {
+    if (context.mounted) {
+      Navigator.of(context).pop(); // dismiss loading if not already done
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('MVP belirlenirken hata oluştu: $e')),
+      );
+    }
+  }
+}
+
+void _showManualMvpSelectionSheet(BuildContext context, WidgetRef ref, Tournament tournament) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) {
+      final theme = Theme.of(context);
+      final scheme = theme.colorScheme;
+      return DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        minChildSize: 0.4,
+        expand: false,
+        builder: (context, scrollController) {
+          return Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'MVP Manuel Seç',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Oylama yapılmadığı için turnuvanın MVP\'sini manuel olarak seçin.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.builder(
+                    controller: scrollController,
+                    itemCount: tournament.participants.length,
+                    itemBuilder: (context, index) {
+                      final p = tournament.participants[index];
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundColor: scheme.primaryContainer,
+                          child: Text(
+                            p.username.substring(0, p.username.length >= 2 ? 2 : 1).toUpperCase(),
+                            style: TextStyle(color: scheme.onPrimaryContainer, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        title: Text(p.username),
+                        onTap: () async {
+                          Navigator.of(context).pop();
+                          await ref.read(firestoreProvider).collection('tournaments').doc(tournament.id).update({
+                            'mvpUid': p.uid,
+                          });
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('MVP belirlendi: ${p.username}! ⭐️')),
+                            );
+                          }
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+void _showPredictionSheet(BuildContext context, WidgetRef ref, Tournament tournament) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) {
+      final theme = Theme.of(context);
+      final scheme = theme.colorScheme;
+      return DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        minChildSize: 0.4,
+        expand: false,
+        builder: (context, scrollController) {
+          return Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Kazananı Tahmin Et',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Turnuvayı kimin kazanacağını düşünüyorsun? Tahminini seç. Turnuva başladıktan sonra değiştirilemez.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.builder(
+                    controller: scrollController,
+                    itemCount: tournament.participants.length,
+                    itemBuilder: (context, index) {
+                      final p = tournament.participants[index];
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundColor: scheme.primaryContainer,
+                          child: Text(
+                            p.username.substring(0, p.username.length >= 2 ? 2 : 1).toUpperCase(),
+                            style: TextStyle(color: scheme.onPrimaryContainer, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        title: Text(p.username),
+                        onTap: () async {
+                          Navigator.of(context).pop();
+                          await ref.read(tournamentRepositoryProvider).predictWinner(tournament.id, p.uid);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Tahmininiz kaydedildi: ${p.username}')),
+                            );
+                          }
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+/// Yöneticileri yönetme BottomSheet'i.
+void _showAdminManagementSheet(
+  BuildContext context,
+  WidgetRef ref,
+  Tournament tournament,
+) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) {
+      return _AdminManagementSheet(tournamentId: tournament.id);
+    },
+  );
+}
+
+class _AdminManagementSheet extends ConsumerWidget {
+  const _AdminManagementSheet({required this.tournamentId});
+
+  final String tournamentId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tournamentAsync = ref.watch(tournamentStreamProvider(tournamentId));
+
+    return tournamentAsync.when(
+      loading: () => const SizedBox(
+        height: 200,
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (_, __) => const SizedBox(
+        height: 200,
+        child: Center(child: Text('Hata oluştu')),
+      ),
+      data: (t) {
+        if (t == null) return const SizedBox.shrink();
+
+        return Padding(
+          padding: EdgeInsets.only(
+            top: 24,
+            left: 16,
+            right: 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Yöneticileri Yönet',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Turnuvaya yardımcı yöneticiler atayabilir veya kaldırabilirsin.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (t.adminIds.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  child: Text(
+                    'Henüz yardımcı yönetici eklenmedi.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontStyle: FontStyle.italic,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                )
+              else
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: t.adminIds.length,
+                  itemBuilder: (context, index) {
+                    final adminId = t.adminIds[index];
+                    final adminParticipant = t.participants.firstWhere(
+                      (p) => p.uid == adminId,
+                      orElse: () => Participant(uid: adminId, username: 'Yardımcı Yönetici'),
+                    );
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor: scheme.secondaryContainer,
+                        child: Icon(Icons.admin_panel_settings, color: scheme.onSecondaryContainer),
+                      ),
+                      title: Text(adminParticipant.username),
+                      trailing: IconButton(
+                        icon: Icon(Icons.delete_outline, color: scheme.error),
+                        onPressed: () async {
+                          await ref.read(tournamentRepositoryProvider).removeCoAdmin(t.id, adminId);
+                        },
+                      ),
+                    );
+                  },
+                ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _showAddCoAdminSearchSheet(context, ref, t),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Yardımcı Yönetici Ekle'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+void _showAddCoAdminSearchSheet(
+  BuildContext context,
+  WidgetRef ref,
+  Tournament t,
+) {
+  final candidates = t.participants.where(
+    (p) => p.uid != t.ownerId && !t.adminIds.contains(p.uid),
+  ).toList();
+
+  showModalBottomSheet<void>(
+    context: context,
+    builder: (context) {
+      final theme = Theme.of(context);
+      final scheme = theme.colorScheme;
+
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Yönetici Ekle',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (candidates.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text(
+                    'Eklenebilecek aday oyuncu bulunamadı.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: candidates.length,
+                  itemBuilder: (context, index) {
+                    final p = candidates[index];
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor: scheme.primaryContainer,
+                        child: Text(
+                          p.username.substring(0, p.username.length >= 2 ? 2 : 1).toUpperCase(),
+                          style: TextStyle(color: scheme.onPrimaryContainer, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      title: Text(p.username),
+                      onTap: () async {
+                        Navigator.of(context).pop();
+                        await ref.read(tournamentRepositoryProvider).addCoAdmin(t.id, p.uid);
+                      },
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+Color _parseHexColor(String hex) {
+  final cleaned = hex.replaceFirst('#', '');
+  if (cleaned.length == 6) {
+    return Color(int.parse('FF$cleaned', radix: 16));
+  }
+  return const Color(0xFF4CAF50);
+}
+
 /// Turnuva başlamadan önceki bekleme lobisi.
 ///
 /// Katılımcıları, davet kodunu ve (yalnızca yöneticiye) "Başlat" butonunu
@@ -274,6 +827,171 @@ class _LobbyView extends ConsumerStatefulWidget {
 
 class _LobbyViewState extends ConsumerState<_LobbyView> {
   bool _starting = false;
+  Map<String, RosterEntry> _localRoster = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _initLocalRoster();
+  }
+
+  @override
+  void didUpdateWidget(_LobbyView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tournament.roster != widget.tournament.roster) {
+      _initLocalRoster();
+    }
+  }
+
+  void _initLocalRoster() {
+    _localRoster = {
+      for (final entry in widget.tournament.roster) entry.uid: entry,
+    };
+  }
+
+  bool _hasRosterChanges() {
+    final currentRoster = widget.tournament.roster;
+    if (_localRoster.length != currentRoster.length) return true;
+    for (final entry in currentRoster) {
+      final local = _localRoster[entry.uid];
+      if (local == null) return true;
+      if (local.teamName != entry.teamName || local.teamColor != entry.teamColor) {
+        return true;
+      }
+    }
+    for (final key in _localRoster.keys) {
+      final dbEntry = currentRoster.firstWhere(
+        (e) => e.uid == key,
+        orElse: () => const RosterEntry(uid: ''),
+      );
+      if (dbEntry.uid.isEmpty) return true;
+    }
+    return false;
+  }
+
+  Future<void> _saveRoster() async {
+    try {
+      await ref.read(tournamentRepositoryProvider).updateRoster(
+            widget.tournament.id,
+            _localRoster.values.toList(),
+          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Takım kadrosu kaydedildi.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e')),
+        );
+      }
+    }
+  }
+
+  void _showAssignTeamDialog(Participant participant) {
+    final entry = _localRoster[participant.uid] ?? RosterEntry(uid: participant.uid);
+    final nameController = TextEditingController(text: entry.teamName ?? '');
+    String selectedColor = entry.teamColor;
+
+    const colorMap = {
+      '#F44336': Colors.red,
+      '#2196F3': Colors.blue,
+      '#4CAF50': Colors.green,
+      '#FFEB3B': Colors.yellow,
+      '#9C27B0': Colors.purple,
+      '#FF9800': Colors.orange,
+      '#E91E63': Colors.pink,
+      '#FFFFFF': Colors.white,
+    };
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final theme = Theme.of(context);
+            return AlertDialog(
+              title: Text('${participant.username} - Takım Ata'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Takım Adı (İsteğe Bağlı)',
+                      hintText: 'Örn: Real Madrid',
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Takım Rengi',
+                    style: theme.textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: colorMap.entries.map((e) {
+                      final isSelected = selectedColor.toUpperCase() == e.key.toUpperCase();
+                      return GestureDetector(
+                        onTap: () {
+                          setDialogState(() {
+                            selectedColor = e.key;
+                          });
+                        },
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: e.value,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: isSelected
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.outline.withValues(alpha: 0.4),
+                              width: isSelected ? 3 : 1,
+                            ),
+                          ),
+                          child: isSelected
+                              ? Icon(
+                                  Icons.check,
+                                  size: 16,
+                                  color: e.value == Colors.white ? Colors.black : Colors.white,
+                                )
+                              : null,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('İptal'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _localRoster[participant.uid] = RosterEntry(
+                        uid: participant.uid,
+                        teamName: nameController.text.trim(),
+                        teamColor: selectedColor,
+                      );
+                    });
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('Kaydet'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 
   Future<void> _confirmRemoveParticipant(
     Tournament tournament,
@@ -361,14 +1079,16 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final user = ref.watch(currentUserProvider);
-    final isAdmin = user != null && user.uid == t.ownerId;
+    final isAdmin = user != null && (user.uid == t.ownerId || t.adminIds.contains(user.uid));
+    final isOwner = user != null && user.uid == t.ownerId;
     final enoughPlayers = t.participants.length >= 2;
+    final myPredictionAsync = ref.watch(myTournamentPredictionProvider(t.id));
 
     return Scaffold(
       appBar: AppBar(
         title: Text(t.name),
         actions: [
-          if (isAdmin)
+          if (isOwner)
             IconButton(
               icon: const Icon(Icons.edit_outlined),
               tooltip: 'Turnuvayı Düzenle',
@@ -440,6 +1160,42 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
                       label: const Text('Arkadaşlarını Davet Et'),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  myPredictionAsync.when(
+                    data: (predictionUid) {
+                      if (predictionUid == null) {
+                        return SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _showPredictionSheet(context, ref, t),
+                            icon: const Icon(Icons.psychology_alt),
+                            label: const Text('Kazananı Tahmin Et'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: scheme.primaryContainer,
+                              foregroundColor: scheme.onPrimaryContainer,
+                            ),
+                          ),
+                        );
+                      } else {
+                        final predicted = t.participants.firstWhere(
+                          (p) => p.uid == predictionUid,
+                          orElse: () => const Participant(uid: '', username: 'Bilinmeyen Oyuncu'),
+                        );
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: InputChip(
+                              label: Text('Tahminim: ${predicted.username}'),
+                              avatar: const Icon(Icons.auto_awesome, size: 16),
+                              onPressed: () => _showPredictionSheet(context, ref, t),
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    loading: () => const Center(child: CircularProgressIndicator()),
+                    error: (_, __) => const SizedBox.shrink(),
+                  ),
                   const SizedBox(height: 24),
                   Text(
                     'Katılımcılar (${t.participants.length})',
@@ -449,26 +1205,114 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
                   ),
                   const SizedBox(height: 12),
                   for (final p in t.participants)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _ParticipantTile(
-                        name: p.username,
-                        isOwner: p.uid == t.ownerId,
-                        onTap: () {
-                          if (p.uid == (user?.uid ?? '')) {
-                            context.goNamed(RoutePaths.profileName);
-                          } else {
-                            context.pushNamed(
-                              RoutePaths.userProfileName,
-                              pathParameters: {'uid': p.uid},
-                            );
-                          }
-                        },
-                        onRemove: (isAdmin && p.uid != t.ownerId)
-                            ? () => _confirmRemoveParticipant(t, p)
-                            : null,
-                      ),
+                    () {
+                      final rosterEntry = _localRoster[p.uid];
+                      final hasTeam = rosterEntry != null &&
+                          rosterEntry.teamName != null &&
+                          rosterEntry.teamName!.isNotEmpty;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _ParticipantTile(
+                          name: p.username,
+                          isOwner: p.uid == t.ownerId,
+                          teamName: hasTeam ? rosterEntry.teamName : null,
+                          teamColor: rosterEntry?.teamColor,
+                          onTap: () {
+                            if (isAdmin) {
+                              _showAssignTeamDialog(p);
+                            } else {
+                              if (p.uid == (user?.uid ?? '')) {
+                                context.goNamed(RoutePaths.profileName);
+                              } else {
+                                context.pushNamed(
+                                  RoutePaths.userProfileName,
+                                  pathParameters: {'uid': p.uid},
+                                );
+                              }
+                            }
+                          },
+                          onRemove: (isAdmin && p.uid != t.ownerId)
+                              ? () => _confirmRemoveParticipant(t, p)
+                              : null,
+                        ),
+                      );
+                    }(),
+                  if (isOwner) ...[
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Yardımcı Yöneticiler (${t.adminIds.length})',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: () => _showAdminManagementSheet(context, ref, t),
+                          icon: const Icon(Icons.settings, size: 16),
+                          label: const Text('Yönet'),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 12),
+                    if (t.adminIds.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Text(
+                          'Henüz yardımcı yönetici eklenmedi.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      )
+                    else
+                      for (final adminId in t.adminIds)
+                        () {
+                          final adminParticipant = t.participants.firstWhere(
+                            (p) => p.uid == adminId,
+                            orElse: () => Participant(uid: adminId, username: 'Bilinmeyen Admin'),
+                          );
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: scheme.surface,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: scheme.outline.withValues(alpha: 0.15)),
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: scheme.secondaryContainer,
+                                    child: Icon(Icons.admin_panel_settings, color: scheme.onSecondaryContainer, size: 18),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      adminParticipant.username,
+                                      style: theme.textTheme.bodyLarge?.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: Icon(Icons.remove_circle_outline, color: scheme.error, size: 20),
+                                    onPressed: () async {
+                                      await ref.read(tournamentRepositoryProvider).removeCoAdmin(t.id, adminId);
+                                    },
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }(),
+                  ],
                 ],
               ),
             ),
@@ -486,6 +1330,21 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
                   ? Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (_hasRosterChanges())
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: _saveRoster,
+                                icon: const Icon(Icons.save),
+                                label: const Text('Takım Değişikliklerini Kaydet'),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(44),
+                                ),
+                              ),
+                            ),
+                          ),
                         if (!enoughPlayers)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 8),
@@ -611,12 +1470,16 @@ class _ParticipantTile extends StatelessWidget {
   const _ParticipantTile({
     required this.name,
     required this.isOwner,
+    this.teamName,
+    this.teamColor,
     this.onTap,
     this.onRemove,
   });
 
   final String name;
   final bool isOwner;
+  final String? teamName;
+  final String? teamColor;
   final VoidCallback? onTap;
   final VoidCallback? onRemove;
 
@@ -654,13 +1517,46 @@ class _ParticipantTile extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (teamName != null) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: _parseHexColor(teamColor ?? '#4CAF50'),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          teamName!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
           ),
           if (isOwner)
@@ -729,6 +1625,20 @@ class _InfoHeader extends StatelessWidget {
             icon: Icons.group_outlined,
             label: '${tournament.participants.length} Oyuncu',
           ),
+          if (tournament.mvpUid != null && tournament.mvpUid!.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            () {
+              final mvpParticipant = tournament.participants.firstWhere(
+                (p) => p.uid == tournament.mvpUid,
+                orElse: () => const Participant(uid: '', username: 'MVP'),
+              );
+              return _Chip(
+                icon: Icons.star,
+                label: 'MVP: ${mvpParticipant.username}',
+                color: Colors.amber,
+              );
+            }(),
+          ],
           const Spacer(),
           Icon(Icons.vpn_key_outlined, size: 16, color: scheme.onSurfaceVariant),
           const SizedBox(width: 4),
@@ -747,25 +1657,27 @@ class _InfoHeader extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({required this.icon, required this.label});
+  const _Chip({required this.icon, required this.label, this.color});
 
   final IconData icon;
   final String label;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final activeColor = color ?? scheme.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: scheme.primary.withValues(alpha: 0.10),
+        color: activeColor.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: scheme.primary),
+          Icon(icon, size: 14, color: activeColor),
           const SizedBox(width: 6),
           Text(
             label,
@@ -1035,11 +1947,28 @@ class _MatchCard extends ConsumerWidget {
     final scheme = theme.colorScheme;
 
     final uid = ref.watch(currentUserProvider)?.uid ?? '';
-    final isAdmin = uid == tournament.ownerId;
+    final isAdmin = uid == tournament.ownerId || tournament.adminIds.contains(uid);
     final isHome = uid == match.homeUid;
     final isAway = uid == match.awayUid;
     final isParticipant = isHome || isAway;
     final disputed = match.isDisputed;
+
+    final homeRoster = tournament.roster.firstWhere(
+      (e) => e.uid == match.homeUid,
+      orElse: () => const RosterEntry(uid: ''),
+    );
+    final awayRoster = tournament.roster.firstWhere(
+      (e) => e.uid == match.awayUid,
+      orElse: () => const RosterEntry(uid: ''),
+    );
+
+    final homeDisplayName = (homeRoster.uid.isNotEmpty && homeRoster.teamName != null && homeRoster.teamName!.isNotEmpty)
+        ? homeRoster.teamName!
+        : match.homeName;
+
+    final awayDisplayName = (awayRoster.uid.isNotEmpty && awayRoster.teamName != null && awayRoster.teamName!.isNotEmpty)
+        ? awayRoster.teamName!
+        : match.awayName;
 
     final action = _buildAction(
       context,
@@ -1080,7 +2009,7 @@ class _MatchCard extends ConsumerWidget {
                   children: [
                     Flexible(
                       child: Text(
-                        match.homeName,
+                        homeDisplayName,
                         textAlign: TextAlign.end,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -1089,8 +2018,19 @@ class _MatchCard extends ConsumerWidget {
                         ),
                       ),
                     ),
+                    if (homeRoster.uid.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: _parseHexColor(homeRoster.teamColor),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
                     const SizedBox(width: 8),
-                    _PlayerAvatar(name: match.homeName),
+                    PlayerAvatar(name: match.homeName, radius: 14),
                   ],
                 ),
               ),
@@ -1101,11 +2041,22 @@ class _MatchCard extends ConsumerWidget {
               Expanded(
                 child: Row(
                   children: [
-                    _PlayerAvatar(name: match.awayName),
+                    PlayerAvatar(name: match.awayName, radius: 14),
                     const SizedBox(width: 8),
+                    if (awayRoster.uid.isNotEmpty) ...[
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: _parseHexColor(awayRoster.teamColor),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
                     Flexible(
                       child: Text(
-                        match.awayName,
+                        awayDisplayName,
                         textAlign: TextAlign.start,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -2403,32 +3354,6 @@ class _TwoLeggedTieCard extends StatelessWidget {
   }
 }
 
-/// Oyuncu için baş harf(ler)i gösteren yer tutucu avatar.
-class _PlayerAvatar extends StatelessWidget {
-  const _PlayerAvatar({required this.name});
-
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final initials = name.isEmpty
-        ? '?'
-        : name.substring(0, name.length >= 2 ? 2 : 1).toUpperCase();
-    return CircleAvatar(
-      radius: 14,
-      backgroundColor: scheme.primary.withValues(alpha: 0.15),
-      child: Text(
-        initials,
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: scheme.primary,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-}
 
 /// Turnuva notunu gösteren küçük bilgi kartı.
 class _NoteCard extends StatelessWidget {

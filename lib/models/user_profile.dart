@@ -23,6 +23,13 @@ class UserProfile {
     required this.tournamentsWon,
     required this.badges,
     required this.isAnonymous,
+    required this.eloRating,
+    required this.eloHistory,
+    required this.showcaseBadges,
+    required this.seasonStats,
+    this.isPremium = false,
+    this.activeFrame = 'default',
+    this.purchasedFrames = const [],
   });
 
   final String uid;
@@ -41,6 +48,22 @@ class UserProfile {
   final int tournamentsWon;
   final Set<String> badges;
   final bool isAnonymous;
+  final int eloRating;
+  final List<Map<String, dynamic>> eloHistory;
+  final List<String> showcaseBadges;
+  final Map<String, Map<String, dynamic>> seasonStats;
+  final bool isPremium;
+  final String activeFrame;
+  final List<String> purchasedFrames;
+
+  int getSeasonMetric(String seasonId, String metricField) {
+    final stats = seasonStats[seasonId];
+    if (stats == null) return 0;
+    if (metricField == 'totalGoalsScored') {
+      return (stats['totalGoalsScored'] as num?)?.toInt() ?? 0;
+    }
+    return (stats['totalWins'] as num?)?.toInt() ?? 0;
+  }
 
   // Geriye dönük uyumlu kısa adlar (profil ekranı bunları kullanır).
   int get matches => totalMatches;
@@ -70,6 +93,13 @@ class UserProfile {
         tournamentsWon: 0,
         badges: const {},
         isAnonymous: true,
+        eloRating: 1000,
+        eloHistory: const [],
+        showcaseBadges: const [],
+        seasonStats: const {},
+        isPremium: false,
+        activeFrame: 'default',
+        purchasedFrames: const [],
       );
 
   factory UserProfile.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -95,6 +125,21 @@ class UserProfile {
       tournamentsWon: intField('tournamentsWon'),
       badges: {for (final b in rawBadges) '$b'},
       isAnonymous: false,
+      eloRating: (data['eloRating'] as int?) ?? 1000,
+      eloHistory: List<Map<String, dynamic>>.from(
+          data['eloHistory'] as List? ?? []),
+      showcaseBadges: List<String>.from(data['showcaseBadges'] as List? ?? []),
+      seasonStats: Map<String, Map<String, dynamic>>.from(
+        ((data['seasonStats'] as Map?) ?? const {}).map(
+          (k, v) => MapEntry(
+            k.toString(),
+            Map<String, dynamic>.from(v as Map),
+          ),
+        ),
+      ),
+      isPremium: data['isPremium'] as bool? ?? false,
+      activeFrame: data['activeFrame'] as String? ?? 'default',
+      purchasedFrames: List<String>.from(data['purchasedFrames'] as List? ?? []),
     );
   }
 }

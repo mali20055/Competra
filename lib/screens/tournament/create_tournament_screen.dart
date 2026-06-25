@@ -7,52 +7,105 @@ import 'package:go_router/go_router.dart';
 import '../../models/tournament.dart' show TiebreakerMode;
 import '../../router/route_paths.dart';
 import '../../services/tournament_repository.dart';
+import '../../l10n/app_localizations.dart';
 
 /// Turnuva formatı seçenekleri.
 enum TournamentFormat {
-  league('Lig', 'Herkes herkesle, puan tablosu', Icons.table_rows_outlined),
-  knockout('Eleme', 'Tek/çift maç eleme ağacı', Icons.account_tree_outlined),
-  groupKnockout(
-    'Grup + Eleme',
-    'Grup aşaması, sonra eleme',
-    Icons.grid_view_outlined,
-  ),
-  championsLeague(
-    'Şampiyonlar Ligi',
-    'Grup + iki ayaklı eleme',
-    Icons.emoji_events_outlined,
-  );
+  league(Icons.table_rows_outlined),
+  knockout(Icons.account_tree_outlined),
+  groupKnockout(Icons.grid_view_outlined),
+  championsLeague(Icons.emoji_events_outlined);
 
-  const TournamentFormat(this.title, this.description, this.icon);
+  const TournamentFormat(this.icon);
 
-  final String title;
-  final String description;
   final IconData icon;
 }
 
 /// Skor giriş sistemi seçenekleri.
 enum ScoreEntryMode {
-  bothPlayers(
-    'Çift Giriş',
-    'Her iki oyuncu skoru girer, eşleşince onaylanır',
-    Icons.people_alt_outlined,
-  ),
-  winnerEnters(
-    'Kazanan Girer',
-    'Sonucu yalnızca kazanan taraf bildirir',
-    Icons.military_tech_outlined,
-  ),
-  adminOnly(
-    'Sadece Admin',
-    'Skorları yalnızca turnuva yöneticisi girer',
-    Icons.shield_outlined,
-  );
+  bothPlayers(Icons.people_alt_outlined),
+  winnerEnters(Icons.military_tech_outlined),
+  adminOnly(Icons.shield_outlined);
 
-  const ScoreEntryMode(this.title, this.description, this.icon);
+  const ScoreEntryMode(this.icon);
 
-  final String title;
-  final String description;
   final IconData icon;
+}
+
+extension TournamentFormatExtension on TournamentFormat {
+  String getTitle(AppLocalizations l10n) {
+    switch (this) {
+      case TournamentFormat.league:
+        return l10n.formatLeague;
+      case TournamentFormat.knockout:
+        return l10n.formatKnockout;
+      case TournamentFormat.groupKnockout:
+        return l10n.formatGroupKnockout;
+      case TournamentFormat.championsLeague:
+        return l10n.formatChampionsLeague;
+    }
+  }
+
+  String getDescription(AppLocalizations l10n) {
+    switch (this) {
+      case TournamentFormat.league:
+        return l10n.formatLeagueDesc;
+      case TournamentFormat.knockout:
+        return l10n.formatKnockoutDesc;
+      case TournamentFormat.groupKnockout:
+        return l10n.formatGroupKnockoutDesc;
+      case TournamentFormat.championsLeague:
+        return l10n.formatChampionsLeagueDesc;
+    }
+  }
+}
+
+extension ScoreEntryModeExtension on ScoreEntryMode {
+  String getTitle(AppLocalizations l10n) {
+    switch (this) {
+      case ScoreEntryMode.bothPlayers:
+        return l10n.scoreEntryModeDouble;
+      case ScoreEntryMode.winnerEnters:
+        return l10n.scoreEntryModeWinner;
+      case ScoreEntryMode.adminOnly:
+        return l10n.scoreEntryModeAdmin;
+    }
+  }
+
+  String getDescription(AppLocalizations l10n) {
+    switch (this) {
+      case ScoreEntryMode.bothPlayers:
+        return l10n.scoreModeDoubleDesc;
+      case ScoreEntryMode.winnerEnters:
+        return l10n.scoreModeWinnerDesc;
+      case ScoreEntryMode.adminOnly:
+        return l10n.scoreModeAdminDesc;
+    }
+  }
+}
+
+extension TiebreakerModeExtension on TiebreakerMode {
+  String getTitle(AppLocalizations l10n) {
+    switch (this) {
+      case TiebreakerMode.fifa:
+        return l10n.tiebreakerFifa;
+      case TiebreakerMode.uefa:
+        return l10n.tiebreakerUefa;
+      case TiebreakerMode.hybrid:
+        return l10n.tiebreakerHybrid;
+    }
+  }
+
+  String getDescription(AppLocalizations l10n) {
+    switch (this) {
+      case TiebreakerMode.fifa:
+        return l10n.tiebreakerFifaDesc;
+      case TiebreakerMode.uefa:
+        return l10n.tiebreakerUefaDesc;
+      case TiebreakerMode.hybrid:
+        return l10n.tiebreakerHybridDesc;
+    }
+  }
 }
 
 /// Turnuva oluşturma ekranı.
@@ -145,8 +198,9 @@ class _CreateTournamentScreenState
   }
 
   void _showSelectionWarning() {
+    final l10n = AppLocalizations.of(context)!;
     final message =
-        _currentStep == 1 ? 'Lütfen bir format seçin.' : 'Lütfen bir skor giriş sistemi seçin.';
+        _currentStep == 1 ? l10n.enterFormatWarning : l10n.enterScoreModeWarning;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
@@ -158,6 +212,7 @@ class _CreateTournamentScreenState
     final scoreMode = _selectedScoreMode;
     if (format == null || scoreMode == null) return;
 
+    final l10n = AppLocalizations.of(context)!;
     setState(() => _submitting = true);
 
     final effectiveTiebreaker = format == TournamentFormat.knockout
@@ -179,18 +234,16 @@ class _CreateTournamentScreenState
       final shouldSave = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Şablon Olarak Kaydet'),
-          content: const Text(
-            'Bu ayarları gelecekte tekrar kullanmak ister misin?',
-          ),
+          title: Text(l10n.saveAsTemplateTitle),
+          content: Text(l10n.saveAsTemplateDesc),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Hayır'),
+              child: Text(l10n.no),
             ),
             ElevatedButton(
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Evet'),
+              child: Text(l10n.yes),
             ),
           ],
         ),
@@ -210,24 +263,36 @@ class _CreateTournamentScreenState
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Turnuva oluşturuldu.')),
+        SnackBar(content: Text(l10n.tournamentCreated)),
       );
       context.pushReplacementNamed(
         RoutePaths.tournamentDetailName,
         pathParameters: {'id': id},
       );
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      final scheme = Theme.of(context).colorScheme;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Turnuva oluşturulamadı. Lütfen tekrar deneyin.',
-            style: TextStyle(color: scheme.onError),
+      final errorMessage = e.toString();
+      final isLimitError = errorMessage.contains('en fazla 3 aktif turnuva');
+
+      if (isLimitError) {
+        context.pushNamed(RoutePaths.premiumName);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.activeTournamentLimitExceeded),
           ),
-          backgroundColor: scheme.error,
-        ),
-      );
+        );
+      } else {
+        final scheme = Theme.of(context).colorScheme;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              l10n.tournamentCreateFailed,
+              style: TextStyle(color: scheme.onError),
+            ),
+            backgroundColor: scheme.error,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -236,6 +301,7 @@ class _CreateTournamentScreenState
   // ── Şablondan Başla ────────────────────────────────────────────────
 
   void _showTemplateSheet() {
+    final l10n = AppLocalizations.of(context)!;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -250,7 +316,7 @@ class _CreateTournamentScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Şablon Seç',
+                    l10n.templateSelectTitle,
                     style: Theme.of(sheetCtx).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
@@ -260,13 +326,13 @@ class _CreateTournamentScreenState
                     loading: () =>
                         const Center(child: CircularProgressIndicator()),
                     error: (_, __) =>
-                        const Center(child: Text('Yüklenemedi.')),
+                        Center(child: Text(l10n.failedToLoad)),
                     data: (templates) {
                       if (templates.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
                           child: Center(
-                            child: Text('Henüz kaydedilmiş şablon yok.'),
+                            child: Text(l10n.noTemplatesYet),
                           ),
                         );
                       }
@@ -277,8 +343,8 @@ class _CreateTournamentScreenState
                             ListTile(
                               title: Text(t.name),
                               subtitle: Text(
-                                '${_formatDisplayName(t.format)} • '
-                                '${_scoreModeDisplayName(t.scoreMode)}',
+                                '${_formatDisplayName(t.format, l10n)} • '
+                                '${_scoreModeDisplayName(t.scoreMode, l10n)}',
                               ),
                               leading: const Icon(Icons.bookmark_outlined),
                               onTap: () {
@@ -318,32 +384,46 @@ class _CreateTournamentScreenState
     });
   }
 
-  static String _formatDisplayName(String format) => switch (format) {
-        'league' => 'Lig',
-        'knockout' => 'Eleme',
-        'groupKnockout' => 'Grup+Eleme',
-        'championsLeague' => 'Şampiyonlar Ligi',
+  String _titleForStep(int step, AppLocalizations l10n) {
+    switch (step) {
+      case 0:
+        return l10n.basicInfo;
+      case 1:
+        return l10n.selectFormat;
+      case 2:
+        return l10n.selectScoreMode;
+      default:
+        return '';
+    }
+  }
+
+  static String _formatDisplayName(String format, AppLocalizations l10n) => switch (format) {
+        'league' => l10n.formatLeague,
+        'knockout' => l10n.formatKnockout,
+        'groupKnockout' => l10n.formatGroupKnockout,
+        'championsLeague' => l10n.formatChampionsLeague,
         _ => format,
       };
 
-  static String _scoreModeDisplayName(String scoreMode) => switch (scoreMode) {
-        'adminOnly' => 'Sadece Admin',
-        'winnerEnters' => 'Kazanan Girer',
-        'bothPlayers' => 'Çift Giriş',
+  static String _scoreModeDisplayName(String scoreMode, AppLocalizations l10n) => switch (scoreMode) {
+        'adminOnly' => l10n.scoreEntryModeAdmin,
+        'winnerEnters' => l10n.scoreEntryModeWinner,
+        'bothPlayers' => l10n.scoreEntryModeDouble,
         _ => scoreMode,
       };
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Turnuva Oluştur'),
+        title: Text(l10n.createTournament),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: _submitting ? null : _onBack,
-          tooltip: 'Geri',
+          tooltip: l10n.back,
         ),
       ),
       body: SafeArea(
@@ -354,6 +434,7 @@ class _CreateTournamentScreenState
               child: _StepIndicator(
                 currentStep: _currentStep,
                 stepCount: _stepCount,
+                title: _titleForStep(_currentStep, l10n),
               ),
             ),
             // "Şablondan Başla" yalnızca adım 0'da görünür
@@ -369,7 +450,7 @@ class _CreateTournamentScreenState
                     child: OutlinedButton.icon(
                       onPressed: _showTemplateSheet,
                       icon: const Icon(Icons.bookmark_border, size: 18),
-                      label: const Text('Şablondan Başla'),
+                      label: Text(l10n.startFromTemplate),
                     ),
                   ),
                 ),
@@ -386,6 +467,7 @@ class _CreateTournamentScreenState
                     nameController: _nameController,
                     noteController: _noteController,
                     onChanged: () => setState(() {}),
+                    l10n: l10n,
                   ),
                   _FormatStep(
                     selected: _selectedFormat,
@@ -394,6 +476,7 @@ class _CreateTournamentScreenState
                     tiebreaker: _selectedTiebreaker,
                     onTiebreakerSelected: (mode) =>
                         setState(() => _selectedTiebreaker = mode),
+                    l10n: l10n,
                   ),
                   _ScoreModeStep(
                     selected: _selectedScoreMode,
@@ -401,6 +484,7 @@ class _CreateTournamentScreenState
                         setState(() => _selectedScoreMode = mode),
                     name: _nameController.text.trim(),
                     format: _selectedFormat,
+                    l10n: l10n,
                   ),
                 ],
               ),
@@ -413,6 +497,7 @@ class _CreateTournamentScreenState
               submitting: _submitting,
               onBack: _submitting ? null : _onBack,
               onNext: _onNext,
+              l10n: l10n,
             ),
           ],
         ),
@@ -423,15 +508,21 @@ class _CreateTournamentScreenState
 
 /// Üstteki animasyonlu adım göstergesi: "Adım n/3" + dolan ilerleme çubukları.
 class _StepIndicator extends StatelessWidget {
-  const _StepIndicator({required this.currentStep, required this.stepCount});
+  const _StepIndicator({
+    required this.currentStep,
+    required this.stepCount,
+    required this.title,
+  });
 
   final int currentStep;
   final int stepCount;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -440,14 +531,14 @@ class _StepIndicator extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Adım ${currentStep + 1}/$stepCount',
+              l10n.stepCountLabel(currentStep + 1, stepCount),
               style: theme.textTheme.labelLarge?.copyWith(
                 color: scheme.primary,
                 fontWeight: FontWeight.w700,
               ),
             ),
             Text(
-              _titleForStep(currentStep),
+              title,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: scheme.onSurfaceVariant,
               ),
@@ -479,19 +570,6 @@ class _StepIndicator extends StatelessWidget {
       ],
     );
   }
-
-  String _titleForStep(int step) {
-    switch (step) {
-      case 0:
-        return 'Temel Bilgiler';
-      case 1:
-        return 'Format Seç';
-      case 2:
-        return 'Skor Giriş Sistemi';
-      default:
-        return '';
-    }
-  }
 }
 
 /// Adım 1 — Turnuva adı ve opsiyonel not.
@@ -501,12 +579,14 @@ class _BasicInfoStep extends StatelessWidget {
     required this.nameController,
     required this.noteController,
     required this.onChanged,
+    required this.l10n,
   });
 
   final GlobalKey<FormState> formKey;
   final TextEditingController nameController;
   final TextEditingController noteController;
   final VoidCallback onChanged;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -519,37 +599,37 @@ class _BasicInfoStep extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
         children: [
           _StepHeading(
-            title: 'Temel Bilgiler',
-            subtitle: 'Turnuvana bir ad ver ve istersen kısa bir not ekle.',
+            title: l10n.basicInfo,
+            subtitle: l10n.basicInfoDesc,
           ),
           const SizedBox(height: 24),
-          _FieldLabel('Turnuva Adı'),
+          _FieldLabel(l10n.tournamentName),
           const SizedBox(height: 6),
           TextFormField(
             controller: nameController,
             textInputAction: TextInputAction.next,
             autovalidateMode: AutovalidateMode.onUserInteraction,
             onChanged: (_) => onChanged(),
-            decoration: const InputDecoration(
-              hintText: 'Örn. Mahalle Ligi 2026',
-              prefixIcon: Icon(Icons.emoji_events_outlined),
+            decoration: InputDecoration(
+              hintText: l10n.tournamentNameHint,
+              prefixIcon: const Icon(Icons.emoji_events_outlined),
             ),
             validator: (value) {
               final text = value?.trim() ?? '';
-              if (text.isEmpty) return 'Turnuva adı gerekli';
-              if (text.length < 3) return 'En az 3 karakter olmalı';
+              if (text.isEmpty) return l10n.tournamentNameRequired;
+              if (text.length < 3) return l10n.tournamentNameMinLength(3);
               return null;
             },
           ),
           const SizedBox(height: 20),
-          _FieldLabel('Not (opsiyonel)'),
+          _FieldLabel(l10n.noteOptional),
           const SizedBox(height: 6),
           TextFormField(
             controller: noteController,
             maxLines: 4,
             textInputAction: TextInputAction.newline,
             decoration: InputDecoration(
-              hintText: 'Kurallar, ödüller veya katılımcılarla ilgili notlar…',
+              hintText: l10n.noteHint,
               alignLabelWithHint: true,
               prefixIcon: Padding(
                 padding: const EdgeInsets.only(bottom: 48),
@@ -570,12 +650,14 @@ class _FormatStep extends StatelessWidget {
     required this.onSelected,
     required this.tiebreaker,
     required this.onTiebreakerSelected,
+    required this.l10n,
   });
 
   final TournamentFormat? selected;
   final ValueChanged<TournamentFormat> onSelected;
   final TiebreakerMode tiebreaker;
   final ValueChanged<TiebreakerMode> onTiebreakerSelected;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -588,8 +670,8 @@ class _FormatStep extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
       children: [
         _StepHeading(
-          title: 'Format Seç',
-          subtitle: 'Turnuvanın nasıl işleyeceğini belirleyen formatı seç.',
+          title: l10n.selectFormat,
+          subtitle: l10n.selectFormatSubtitle,
         ),
         const SizedBox(height: 24),
         GridView.count(
@@ -603,8 +685,8 @@ class _FormatStep extends StatelessWidget {
             for (final format in TournamentFormat.values)
               _SelectableCard(
                 icon: format.icon,
-                title: format.title,
-                description: format.description,
+                title: format.getTitle(l10n),
+                description: format.getDescription(l10n),
                 selected: selected == format,
                 onTap: () => onSelected(format),
               ),
@@ -615,6 +697,7 @@ class _FormatStep extends StatelessWidget {
           _TiebreakerSelector(
             selected: tiebreaker,
             onSelected: onTiebreakerSelected,
+            l10n: l10n,
           ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.1, end: 0),
         ],
       ],
@@ -627,10 +710,12 @@ class _TiebreakerSelector extends StatelessWidget {
   const _TiebreakerSelector({
     required this.selected,
     required this.onSelected,
+    required this.l10n,
   });
 
   final TiebreakerMode selected;
   final ValueChanged<TiebreakerMode> onSelected;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -645,7 +730,7 @@ class _TiebreakerSelector extends StatelessWidget {
             Icon(Icons.sort, size: 18, color: scheme.primary),
             const SizedBox(width: 8),
             Text(
-              'Sıralama Kriteri',
+              l10n.tiebreakerCriteria,
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
@@ -654,7 +739,7 @@ class _TiebreakerSelector extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Puan eşitliğinde sıralamanın nasıl belirleneceğini seç.',
+          l10n.tiebreakerSubtitle,
           style: theme.textTheme.bodySmall?.copyWith(
             color: scheme.onSurfaceVariant,
           ),
@@ -665,6 +750,7 @@ class _TiebreakerSelector extends StatelessWidget {
             mode: mode,
             selected: selected == mode,
             onTap: () => onSelected(mode),
+            l10n: l10n,
           ),
           if (mode != TiebreakerMode.values.last) const SizedBox(height: 10),
         ],
@@ -678,11 +764,13 @@ class _TiebreakerOption extends StatelessWidget {
     required this.mode,
     required this.selected,
     required this.onTap,
+    required this.l10n,
   });
 
   final TiebreakerMode mode;
   final bool selected;
   final VoidCallback onTap;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -724,7 +812,7 @@ class _TiebreakerOption extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      mode.label,
+                      mode.getTitle(l10n),
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: selected ? scheme.primary : scheme.onSurface,
@@ -732,7 +820,7 @@ class _TiebreakerOption extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      mode.description,
+                      mode.getDescription(l10n),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -755,12 +843,14 @@ class _ScoreModeStep extends StatelessWidget {
     required this.onSelected,
     required this.name,
     required this.format,
+    required this.l10n,
   });
 
   final ScoreEntryMode? selected;
   final ValueChanged<ScoreEntryMode> onSelected;
   final String name;
   final TournamentFormat? format;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -768,15 +858,15 @@ class _ScoreModeStep extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
       children: [
         _StepHeading(
-          title: 'Skor Giriş Sistemi',
-          subtitle: 'Maç sonuçlarının nasıl girileceğini seç.',
+          title: l10n.selectScoreMode,
+          subtitle: l10n.selectScoreModeSubtitle,
         ),
         const SizedBox(height: 24),
         for (final mode in ScoreEntryMode.values) ...[
           _SelectableCard(
             icon: mode.icon,
-            title: mode.title,
-            description: mode.description,
+            title: mode.getTitle(l10n),
+            description: mode.getDescription(l10n),
             selected: selected == mode,
             onTap: () => onSelected(mode),
             fullWidth: true,
@@ -784,7 +874,12 @@ class _ScoreModeStep extends StatelessWidget {
           const SizedBox(height: 14),
         ],
         const SizedBox(height: 10),
-        _SummaryCard(name: name, format: format, scoreMode: selected),
+        _SummaryCard(
+          name: name,
+          format: format,
+          scoreMode: selected,
+          l10n: l10n,
+        ),
       ],
     );
   }
@@ -976,11 +1071,13 @@ class _SummaryCard extends StatelessWidget {
     required this.name,
     required this.format,
     required this.scoreMode,
+    required this.l10n,
   });
 
   final String name;
   final TournamentFormat? format;
   final ScoreEntryMode? scoreMode;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -1002,7 +1099,7 @@ class _SummaryCard extends StatelessWidget {
               Icon(Icons.fact_check_outlined, size: 18, color: scheme.primary),
               const SizedBox(width: 8),
               Text(
-                'Özet',
+                l10n.summary,
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
@@ -1011,18 +1108,18 @@ class _SummaryCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _SummaryRow(
-            label: 'Ad',
+            label: l10n.name,
             value: name.isEmpty ? '—' : name,
           ),
           const Divider(height: 20),
           _SummaryRow(
-            label: 'Format',
-            value: format?.title ?? '—',
+            label: l10n.formatLabel,
+            value: format != null ? format!.getTitle(l10n) : '—',
           ),
           const Divider(height: 20),
           _SummaryRow(
-            label: 'Skor Sistemi',
-            value: scoreMode?.title ?? 'Seçilmedi',
+            label: l10n.scoreSystem,
+            value: scoreMode != null ? scoreMode!.getTitle(l10n) : l10n.notSelected,
           ),
         ],
       ),
@@ -1131,6 +1228,7 @@ class _NavigationBar extends StatelessWidget {
     required this.submitting,
     required this.onBack,
     required this.onNext,
+    required this.l10n,
   });
 
   final ThemeData theme;
@@ -1140,6 +1238,7 @@ class _NavigationBar extends StatelessWidget {
   final bool submitting;
   final VoidCallback? onBack;
   final VoidCallback onNext;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -1160,7 +1259,7 @@ class _NavigationBar extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: onBack,
               icon: const Icon(Icons.arrow_back, size: 20),
-              label: Text(currentStep == 0 ? 'İptal' : 'Geri'),
+              label: Text(currentStep == 0 ? l10n.cancel : l10n.back),
             ),
           ),
           const SizedBox(width: 14),
@@ -1180,7 +1279,7 @@ class _NavigationBar extends StatelessWidget {
                   : Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(isLastStep ? 'Turnuvayı Oluştur' : 'Devam Et'),
+                        Text(isLastStep ? l10n.createTournament : l10n.next),
                         const SizedBox(width: 8),
                         Icon(
                           isLastStep ? Icons.check : Icons.arrow_forward,

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'roster_entry.dart';
 
 /// Puan eşitliğinde uygulanacak averaj / sıralama modu.
 ///
@@ -73,6 +74,10 @@ class Tournament {
     required this.tiebreakerMode,
     required this.createdAt,
     required this.currentPhase,
+    required this.adminIds,
+    required this.roster,
+    this.completedAt,
+    this.mvpUid,
   });
 
   final String id;
@@ -104,9 +109,15 @@ class Tournament {
   /// aşamalı formatlarda (grup+eleme, Şampiyonlar Ligi) aşama geçişlerini izler.
   final String currentPhase;
 
+  final List<String> adminIds;
+  final List<RosterEntry> roster;
+
+  final DateTime? completedAt;
+  final String? mvpUid;
+
   bool get isCompleted => status == 'completed';
   bool get isWaiting => status == 'waiting';
-
+  
   /// Eleme aşamasında mı? (grup/lig fazından sonra)
   bool get isKnockoutPhase => currentPhase == 'knockout';
 
@@ -164,6 +175,8 @@ class Tournament {
   factory Tournament.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? const <String, dynamic>{};
     final rawParticipants = (data['participants'] as List?) ?? const [];
+    final rawAdminIds = (data['adminIds'] as List?) ?? const [];
+    final rawRoster = (data['roster'] as List?) ?? const [];
     return Tournament(
       id: doc.id,
       name: (data['name'] as String?) ?? 'Turnuva',
@@ -186,6 +199,13 @@ class Tournament {
         (data['format'] as String?) ?? '',
         (data['status'] as String?) ?? 'active',
       ),
+      adminIds: List<String>.from(rawAdminIds),
+      roster: [
+        for (final r in rawRoster)
+          RosterEntry.fromMap(Map<String, dynamic>.from(r as Map)),
+      ],
+      completedAt: (data['completedAt'] as Timestamp?)?.toDate(),
+      mvpUid: data['mvpUid'] as String?,
     );
   }
 }
@@ -214,6 +234,7 @@ class TournamentMatch {
     this.phase = '',
     this.group = '',
     this.leg = 1,
+    this.createdAt,
   });
 
   final String id;
@@ -243,6 +264,7 @@ class TournamentMatch {
   final String awayName;
   final int? homeScore;
   final int? awayScore;
+  final DateTime? createdAt;
 
   /// Bye maçı: oyuncu otomatik tur atlar. Averaja/gol krallığına dahil edilmez.
   final bool isBye;
@@ -308,6 +330,7 @@ class TournamentMatch {
       }(),
       group: (data['group'] as String?) ?? '',
       leg: (data['leg'] as num?)?.toInt() ?? 1,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
     );
   }
 }

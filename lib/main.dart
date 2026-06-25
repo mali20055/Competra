@@ -6,8 +6,11 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:purchases_flutter/purchases_flutter.dart';
+
 import 'l10n/app_localizations.dart';
-import 'core/theme/app_theme.dart';
+import 'core/theme/app_themes.dart';
+import 'core/theme/theme_notifier.dart';
 import 'firebase_options.dart';
 import 'router/app_router.dart';
 import 'services/app_settings.dart';
@@ -18,6 +21,10 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  await Purchases.configure(
+    PurchasesConfiguration('YOUR_REVENUECAT_PUBLIC_KEY'),
   );
 
   // ignore: deprecated_member_use
@@ -57,14 +64,18 @@ class CompetraApp extends ConsumerWidget {
       FirebaseCrashlytics.instance.setUserIdentifier(uid ?? '');
     });
 
+    final selectedTheme = ref.watch(themeNotifierProvider);
+    final selectedLocale = ref.watch(localeProvider);
+
     return MaterialApp.router(
       title: 'Competra',
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: NotificationService.messengerKey,
+      locale: selectedLocale,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
+      theme: AppThemes.getTheme(selectedTheme, Brightness.light),
+      darkTheme: AppThemes.getTheme(selectedTheme, Brightness.dark),
       themeMode: themeMode,
       routerConfig: AppRouter.router,
     );

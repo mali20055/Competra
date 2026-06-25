@@ -218,3 +218,266 @@ class _ShareStat extends StatelessWidget {
     );
   }
 }
+
+/// Turnuva gol kralı için paylaşılabilir, markalı kart görseli.
+class ScorerShareCard extends StatelessWidget {
+  const ScorerShareCard({
+    super.key,
+    required this.tournamentName,
+    required this.scorerName,
+    required this.goals,
+  });
+
+  final String tournamentName;
+  final String scorerName;
+  final int goals;
+
+  static const Color _bg = Color(0xFF0A1F14);
+  static const Color _gold = Color(0xFFFFD700);
+  static const Color _green = Color(0xFF1FC36B);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 360,
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _green.withValues(alpha: 0.4), width: 1.5),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.sports_soccer, color: _green, size: 22),
+              const SizedBox(width: 8),
+              Text(
+                'COMPETRA',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 20,
+                  letterSpacing: 2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 28),
+          const Icon(Icons.sports_soccer, color: _gold, size: 72),
+          const SizedBox(height: 12),
+          const Text(
+            '⚽ GOL KRALI',
+            style: TextStyle(
+              color: _gold,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              letterSpacing: 4,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            scorerName,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 32,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            tournamentName,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontWeight: FontWeight.w500,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 28),
+          Text(
+            '$goals Gol',
+            style: const TextStyle(
+              color: _gold,
+              fontWeight: FontWeight.w900,
+              fontSize: 28,
+            ),
+          ),
+          const SizedBox(height: 28),
+          Text(
+            'competra.app',
+            style: TextStyle(
+              color: _green.withValues(alpha: 0.8),
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+              letterSpacing: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Turnuva genel özeti için paylaşılabilir, markalı kart görseli.
+class SummaryShareCard extends StatelessWidget {
+  const SummaryShareCard({
+    super.key,
+    required this.tournamentName,
+    required this.totalMatches,
+    required this.totalGoals,
+    required this.totalPlayers,
+  });
+
+  final String tournamentName;
+  final int totalMatches;
+  final int totalGoals;
+  final int totalPlayers;
+
+  static const Color _bg = Color(0xFF0A1F14);
+  static const Color _gold = Color(0xFFFFD700);
+  static const Color _green = Color(0xFF1FC36B);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 360,
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _green.withValues(alpha: 0.4), width: 1.5),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.sports_soccer, color: _green, size: 22),
+              const SizedBox(width: 8),
+              Text(
+                'COMPETRA',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 20,
+                  letterSpacing: 2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 28),
+          const Icon(Icons.insights, color: _gold, size: 72),
+          const SizedBox(height: 12),
+          const Text(
+            '📊 TURNUVA ÖZETİ',
+            style: TextStyle(
+              color: _gold,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              letterSpacing: 4,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            tournamentName,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 28,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 28),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              Column(
+                children: [
+                  Text(
+                    '$totalMatches',
+                    style: const TextStyle(
+                      color: _gold,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 28,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Maç',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              Column(
+                children: [
+                  Text(
+                    '$totalGoals',
+                    style: const TextStyle(
+                      color: _gold,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 28,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Gol',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              Column(
+                children: [
+                  Text(
+                    '$totalPlayers',
+                    style: const TextStyle(
+                      color: _gold,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 28,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Oyuncu',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 28),
+          Text(
+            'competra.app',
+            style: TextStyle(
+              color: _green.withValues(alpha: 0.8),
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+              letterSpacing: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

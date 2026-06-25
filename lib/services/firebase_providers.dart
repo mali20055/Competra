@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'premium_service.dart';
+
 /// Firebase servis örnekleri ve oturum durumu için ortak Riverpod sağlayıcıları.
 ///
 /// Tüm ekranlar Firebase'e doğrudan değil, bu sağlayıcılar üzerinden erişir;
@@ -27,4 +29,8 @@ final authStateProvider = StreamProvider<User?>(
 /// O an oturum açmış kullanıcı (yoksa `null`).
 final currentUserProvider = Provider<User?>(
   (ref) => ref.watch(authStateProvider).asData?.value,
+);
+
+final isPremiumProvider = FutureProvider<bool>(
+  (ref) => PremiumService.isPremium(),
 );

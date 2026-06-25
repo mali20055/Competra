@@ -5,16 +5,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../components/skeleton_widgets.dart';
+import '../../components/player_avatar.dart';
 import '../../core/constants/app_constants.dart';
 import '../../models/user_profile.dart';
 import '../../router/route_paths.dart';
 import '../../services/firebase_providers.dart';
+import '../../services/season_repository.dart';
 
 /// Liderlik tablosunun sıralandığı ölçüt.
 enum LeaderboardMetric {
   wins('Galibiyet', 'totalWins'),
   goals('Gol', 'totalGoalsScored'),
-  tournaments('Turnuva', 'tournamentsWon');
+  tournaments('Turnuva', 'tournamentsWon'),
+  elo('ELO', 'eloRating');
 
   const LeaderboardMetric(this.label, this.field);
 
@@ -29,6 +32,7 @@ enum LeaderboardMetric {
         LeaderboardMetric.wins => p.totalWins,
         LeaderboardMetric.goals => p.totalGoalsScored,
         LeaderboardMetric.tournaments => p.tournamentsWon,
+        LeaderboardMetric.elo => p.eloRating,
       };
 }
 
@@ -36,12 +40,36 @@ enum LeaderboardMetric {
 /// [AppConstants.leaderboardLimit] kullanıcıyı canlı yayınlar (`users`
 /// koleksiyonu). Daha fazlası "Daha fazla yükle" ile [fetchNextLeaderboardPage]
 /// üzerinden ayrıca çekilir.
+class LeaderboardArgs {
+  final LeaderboardMetric metric;
+  final String? seasonId;
+
+  const LeaderboardArgs({required this.metric, this.seasonId});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LeaderboardArgs &&
+          runtimeType == other.runtimeType &&
+          metric == other.metric &&
+          seasonId == other.seasonId;
+
+  @override
+  int get hashCode => metric.hashCode ^ seasonId.hashCode;
+}
+
 final leaderboardProvider =
-    StreamProvider.family<List<UserProfile>, LeaderboardMetric>((ref, metric) {
+    StreamProvider.family<List<UserProfile>, LeaderboardArgs>((ref, args) {
+  final queryField = args.seasonId != null
+      ? (args.metric == LeaderboardMetric.goals
+          ? 'seasonStats.${args.seasonId}.totalGoalsScored'
+          : 'seasonStats.${args.seasonId}.totalWins')
+      : args.metric.field;
+
   return ref
       .watch(firestoreProvider)
       .collection('users')
-      .orderBy(metric.field, descending: true)
+      .orderBy(queryField, descending: true)
       .limit(AppConstants.leaderboardLimit)
       .snapshots()
       .map((snap) => snap.docs.map(UserProfile.fromDoc).toList());
@@ -65,12 +93,19 @@ class LeaderboardPage {
 Future<LeaderboardPage> fetchNextLeaderboardPage({
   required FirebaseFirestore firestore,
   required LeaderboardMetric metric,
+  required String? seasonId,
   required DocumentSnapshot<Map<String, dynamic>> startAfter,
   int limit = AppConstants.leaderboardLimit,
 }) async {
+  final queryField = seasonId != null
+      ? (metric == LeaderboardMetric.goals
+          ? 'seasonStats.$seasonId.totalGoalsScored'
+          : 'seasonStats.$seasonId.totalWins')
+      : metric.field;
+
   final snap = await firestore
       .collection('users')
-      .orderBy(metric.field, descending: true)
+      .orderBy(queryField, descending: true)
       .startAfterDocument(startAfter)
       .limit(limit)
       .get();
@@ -94,15 +129,33 @@ class LeaderboardScreen extends ConsumerStatefulWidget {
   ConsumerState<LeaderboardScreen> createState() => _LeaderboardScreenState();
 }
 
+enum LeaderboardTimeScope {
+  thisSeason('Bu Sezon'),
+  allTime('Tüm Zamanlar');
+
+  const LeaderboardTimeScope(this.label);
+  final String label;
+}
+
 class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
   LeaderboardMetric _metric = LeaderboardMetric.wins;
+  LeaderboardTimeScope _timeScope = LeaderboardTimeScope.allTime;
 
   final List<UserProfile> _moreItems = [];
   DocumentSnapshot<Map<String, dynamic>>? _lastDoc;
   bool _hasMore = true;
   bool _loadingMore = false;
 
-  void _changeMetric(LeaderboardMetric metric) {
+  void _changeMetric(LeaderboardMetric metric) async {
+    if (metric == LeaderboardMetric.elo) {
+      final isPremium = await ref.read(isPremiumProvider.future);
+      if (!isPremium) {
+        if (mounted) {
+          context.pushNamed(RoutePaths.premiumName);
+        }
+        return;
+      }
+    }
     setState(() {
       _metric = metric;
       // Ölçüt değişince sıralama tamamen değişir; eklenen sayfaları sıfırla.
@@ -113,7 +166,17 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
     });
   }
 
-  Future<void> _loadMore(List<UserProfile> liveItems) async {
+  void _changeTimeScope(LeaderboardTimeScope scope) {
+    setState(() {
+      _timeScope = scope;
+      _moreItems.clear();
+      _lastDoc = null;
+      _hasMore = true;
+      _loadingMore = false;
+    });
+  }
+
+  Future<void> _loadMore(List<UserProfile> liveItems, String? seasonId) async {
     if (_loadingMore || !_hasMore) return;
 
     setState(() => _loadingMore = true);
@@ -133,6 +196,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
       final page = await fetchNextLeaderboardPage(
         firestore: firestore,
         metric: _metric,
+        seasonId: seasonId,
         startAfter: anchor,
       );
       setState(() {
@@ -148,16 +212,27 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final entriesAsync = ref.watch(leaderboardProvider(_metric));
+    final activeSeasonAsync = ref.watch(activeSeasonProvider);
+    final activeSeason = activeSeasonAsync.asData?.value;
+    final seasonId = _timeScope == LeaderboardTimeScope.thisSeason ? activeSeason?.id : null;
+
+    final queryArgs = LeaderboardArgs(metric: _metric, seasonId: seasonId);
+    final entriesAsync = ref.watch(leaderboardProvider(queryArgs));
     final myUid = ref.watch(currentUserProvider)?.uid;
+    final isPremium = ref.watch(isPremiumProvider).value ?? false;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Global Sıralama')),
       body: Column(
         children: [
+          _TimeScopeSelector(
+            selected: _timeScope,
+            onChanged: _changeTimeScope,
+          ),
           _MetricSelector(
             selected: _metric,
             onChanged: _changeMetric,
+            isPremium: isPremium,
           ),
           Expanded(
             child: entriesAsync.when(
@@ -176,6 +251,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
                   color: Theme.of(context).colorScheme.primary,
                   onRefresh: () async {
                     ref.invalidate(leaderboardProvider);
+                    ref.invalidate(activeSeasonProvider);
                   },
                   child: ListView.separated(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -185,7 +261,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
                     if (index >= entries.length) {
                       return _LoadMoreButton(
                         loading: _loadingMore,
-                        onPressed: () => _loadMore(liveItems),
+                        onPressed: () => _loadMore(liveItems, seasonId),
                       );
                     }
                     final profile = entries[index];
@@ -193,6 +269,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
                       rank: index + 1,
                       profile: profile,
                       metric: _metric,
+                      seasonId: seasonId,
                       isMe: profile.uid == myUid,
                       onTap: () => context.pushNamed(
                         RoutePaths.userProfileName,
@@ -243,10 +320,15 @@ class _LoadMoreButton extends StatelessWidget {
 
 /// Ölçüt seçim sekmeleri (Galibiyet | Gol | Turnuva).
 class _MetricSelector extends StatelessWidget {
-  const _MetricSelector({required this.selected, required this.onChanged});
+  const _MetricSelector({
+    required this.selected,
+    required this.onChanged,
+    required this.isPremium,
+  });
 
   final LeaderboardMetric selected;
   final ValueChanged<LeaderboardMetric> onChanged;
+  final bool isPremium;
 
   @override
   Widget build(BuildContext context) {
@@ -256,7 +338,63 @@ class _MetricSelector extends StatelessWidget {
       child: SegmentedButton<LeaderboardMetric>(
         segments: [
           for (final m in LeaderboardMetric.values)
-            ButtonSegment<LeaderboardMetric>(value: m, label: Text(m.label)),
+            ButtonSegment<LeaderboardMetric>(
+              value: m,
+              label: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(m.label),
+                  if (m == LeaderboardMetric.elo && !isPremium) ...[
+                    const SizedBox(width: 4),
+                    const Icon(Icons.lock, size: 14),
+                  ],
+                ],
+              ),
+            ),
+        ],
+        selected: {selected},
+        showSelectedIcon: false,
+        onSelectionChanged: (set) => onChanged(set.first),
+        style: ButtonStyle(
+          backgroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return scheme.primary;
+            }
+            return scheme.surface;
+          }),
+          foregroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return scheme.onPrimary;
+            }
+            return scheme.onSurfaceVariant;
+          }),
+        ),
+      ),
+    );
+  }
+}
+
+class _TimeScopeSelector extends StatelessWidget {
+  const _TimeScopeSelector({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final LeaderboardTimeScope selected;
+  final ValueChanged<LeaderboardTimeScope> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: SegmentedButton<LeaderboardTimeScope>(
+        segments: [
+          for (final s in LeaderboardTimeScope.values)
+            ButtonSegment<LeaderboardTimeScope>(
+              value: s,
+              label: Text(s.label),
+            ),
         ],
         selected: {selected},
         showSelectedIcon: false,
@@ -286,6 +424,7 @@ class _LeaderboardTile extends StatelessWidget {
     required this.rank,
     required this.profile,
     required this.metric,
+    this.seasonId,
     required this.isMe,
     this.onTap,
   });
@@ -293,6 +432,7 @@ class _LeaderboardTile extends StatelessWidget {
   final int rank;
   final UserProfile profile;
   final LeaderboardMetric metric;
+  final String? seasonId;
   final bool isMe;
   final VoidCallback? onTap;
 
@@ -300,8 +440,6 @@ class _LeaderboardTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final initial =
-        profile.username.isNotEmpty ? profile.username[0].toUpperCase() : '?';
 
     return Material(
       color: Colors.transparent,
@@ -329,16 +467,10 @@ class _LeaderboardTile extends StatelessWidget {
           const SizedBox(width: 8),
 
           // Avatar (baş harf).
-          CircleAvatar(
+          PlayerAvatar(
+            name: profile.username,
             radius: 20,
-            backgroundColor: scheme.primary.withValues(alpha: 0.18),
-            child: Text(
-              initial,
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: scheme.primary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            activeFrame: profile.activeFrame,
           ),
           const SizedBox(width: 12),
 
@@ -373,7 +505,9 @@ class _LeaderboardTile extends StatelessWidget {
 
           // İlgili istatistik değeri.
           Text(
-            '${metric.valueOf(profile)}',
+            seasonId != null
+                ? '${profile.getSeasonMetric(seasonId!, metric.field)}'
+                : '${metric.valueOf(profile)}',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w800,
               color: scheme.primary,

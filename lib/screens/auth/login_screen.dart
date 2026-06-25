@@ -9,6 +9,7 @@ import '../../components/pitch_pattern_background.dart';
 import '../../core/validators.dart';
 import '../../router/route_paths.dart';
 import '../../services/auth_service.dart';
+import '../../l10n/app_localizations.dart';
 
 /// Giriş / Kayıt ekranı.
 ///
@@ -92,7 +93,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       if (mounted) _showError(e.message);
     } catch (_) {
       if (mounted) {
-        _showError('Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.');
+        final l10n = AppLocalizations.of(context)!;
+        _showError(l10n.unknownError);
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -119,7 +121,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       if (mounted) _showError(e.message);
     } catch (_) {
       if (mounted) {
-        _showError('Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.');
+        final l10n = AppLocalizations.of(context)!;
+        _showError(l10n.unknownError);
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -142,6 +145,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
       body: PitchPatternBackground(
@@ -163,20 +167,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                       const SizedBox(height: 32),
                       _AuthCard(
                         tabController: _tabController,
-                        loginForm: _buildLoginForm(theme),
-                        registerForm: _buildRegisterForm(theme),
+                        loginForm: _buildLoginForm(theme, l10n),
+                        registerForm: _buildRegisterForm(theme, l10n),
+                        l10n: l10n,
                       )
                           .animate()
                           .fadeIn(delay: 150.ms, duration: 600.ms)
                           .slideY(begin: 0.15, end: 0),
                       const SizedBox(height: 20),
-                      _OrDivider()
+                      _OrDivider(l10n: l10n)
                           .animate()
                           .fadeIn(delay: 250.ms, duration: 500.ms),
                       const SizedBox(height: 16),
                       _GoogleButton(
                         loading: _loading,
                         onPressed: _signInWithGoogle,
+                        l10n: l10n,
                       )
                           .animate()
                           .fadeIn(delay: 300.ms, duration: 500.ms)
@@ -191,7 +197,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              'Misafir Devam Et',
+                              l10n.guestContinue,
                               style: TextStyle(color: scheme.onSurfaceVariant),
                             ),
                             const SizedBox(width: 6),
@@ -217,7 +223,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     );
   }
 
-  Widget _buildLoginForm(ThemeData theme) {
+  Widget _buildLoginForm(ThemeData theme, AppLocalizations l10n) {
     return Form(
       key: _loginFormKey,
       child: Column(
@@ -225,16 +231,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         children: [
           AuthTextField(
             controller: _loginUsername,
-            label: 'Kullanıcı Adı',
-            hint: 'Kullanıcı adınızı girin',
+            label: l10n.usernameLabel,
+            hint: l10n.usernameHint,
             icon: Icons.person_outline,
             validator: Validators.username,
           ),
           const SizedBox(height: 16),
           AuthTextField(
             controller: _loginPassword,
-            label: 'Şifre',
-            hint: 'Şifrenizi girin',
+            label: l10n.passwordLabel,
+            hint: l10n.passwordHint,
             icon: Icons.lock_outline,
             isPassword: true,
             obscure: _obscureLoginPassword,
@@ -249,12 +255,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             alignment: Alignment.centerRight,
             child: TextButton(
               onPressed: _loading ? null : _onForgotPassword,
-              child: const Text('Şifremi Unuttum'),
+              child: Text(l10n.forgotPassword),
             ),
           ),
           const SizedBox(height: 8),
           _SubmitButton(
-            label: 'Giriş Yap',
+            label: l10n.loginTitle,
             icon: Icons.arrow_forward,
             loading: _loading,
             filled: true,
@@ -265,7 +271,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     );
   }
 
-  Widget _buildRegisterForm(ThemeData theme) {
+  Widget _buildRegisterForm(ThemeData theme, AppLocalizations l10n) {
     return Form(
       key: _registerFormKey,
       child: Column(
@@ -273,15 +279,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         children: [
           AuthTextField(
             controller: _registerUsername,
-            label: 'Kullanıcı Adı',
-            hint: 'Kullanıcı adı belirleyin',
+            label: l10n.usernameLabel,
+            hint: l10n.usernameRegisterHint,
             icon: Icons.person_outline,
             validator: Validators.username,
           ),
           const SizedBox(height: 16),
           AuthTextField(
             controller: _registerEmail,
-            label: 'E-posta',
+            label: l10n.emailLabel,
             hint: 'ornek@eposta.com',
             icon: Icons.email_outlined,
             validator: Validators.email,
@@ -289,8 +295,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           const SizedBox(height: 16),
           AuthTextField(
             controller: _registerPassword,
-            label: 'Şifre',
-            hint: 'Şifre belirleyin',
+            label: l10n.passwordLabel,
+            hint: l10n.passwordRegisterHint,
             icon: Icons.lock_outline,
             isPassword: true,
             obscure: _obscureRegisterPassword,
@@ -302,8 +308,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           const SizedBox(height: 16),
           AuthTextField(
             controller: _registerConfirm,
-            label: 'Şifre Tekrar',
-            hint: 'Şifrenizi tekrar girin',
+            label: l10n.confirmPasswordLabel,
+            hint: l10n.confirmPasswordHint,
             icon: Icons.lock_reset,
             isPassword: true,
             obscure: _obscureRegisterConfirm,
@@ -317,7 +323,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           ),
           const SizedBox(height: 24),
           _SubmitButton(
-            label: 'Kayıt Ol',
+            label: l10n.registerTitle,
             icon: Icons.person_add_alt,
             loading: _loading,
             filled: false,
@@ -331,8 +337,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   Future<void> _onForgotPassword() async {
     if (_loading) return;
     final username = _loginUsername.text.trim();
+    final l10n = AppLocalizations.of(context)!;
     if (username.isEmpty) {
-      _showError('Önce kullanıcı adını gir.');
+      _showError(l10n.enterUsernameFirst);
       return;
     }
     FocusScope.of(context).unfocus();
@@ -341,15 +348,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       await ref.read(authServiceProvider).sendPasswordReset(username);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Şifre sıfırlama bağlantısı e-postana gönderildi.'),
+        SnackBar(
+          content: Text(l10n.passwordResetSent),
         ),
       );
     } on AuthException catch (e) {
       if (mounted) _showError(e.message);
     } catch (_) {
       if (mounted) {
-        _showError('Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.');
+        _showError(l10n.unknownError);
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -386,11 +393,13 @@ class _AuthCard extends StatelessWidget {
     required this.tabController,
     required this.loginForm,
     required this.registerForm,
+    required this.l10n,
   });
 
   final TabController tabController;
   final Widget loginForm;
   final Widget registerForm;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -417,9 +426,9 @@ class _AuthCard extends StatelessWidget {
             indicatorWeight: 3,
             indicatorSize: TabBarIndicatorSize.tab,
             dividerColor: scheme.outline.withValues(alpha: 0.2),
-            tabs: const [
-              Tab(text: 'Giriş Yap'),
-              Tab(text: 'Kayıt Ol'),
+            tabs: [
+              Tab(text: l10n.loginTitle),
+              Tab(text: l10n.registerTitle),
             ],
           ),
           SizedBox(
@@ -506,6 +515,10 @@ class _SubmitButton extends StatelessWidget {
 
 /// "veya" yazılı, iki yanında ince çizgi olan ayraç.
 class _OrDivider extends StatelessWidget {
+  const _OrDivider({required this.l10n});
+
+  final AppLocalizations l10n;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -518,7 +531,7 @@ class _OrDivider extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
-            'veya',
+            l10n.orDivider,
             style: TextStyle(color: scheme.onSurfaceVariant),
           ),
         ),
@@ -530,10 +543,11 @@ class _OrDivider extends StatelessWidget {
 
 /// "Google ile Giriş Yap" butonu.
 class _GoogleButton extends StatelessWidget {
-  const _GoogleButton({required this.loading, required this.onPressed});
+  const _GoogleButton({required this.loading, required this.onPressed, required this.l10n});
 
   final bool loading;
   final VoidCallback onPressed;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
@@ -541,7 +555,7 @@ class _GoogleButton extends StatelessWidget {
     return OutlinedButton.icon(
       onPressed: loading ? null : onPressed,
       icon: Icon(Icons.g_mobiledata, size: 28, color: scheme.primary),
-      label: const Text('Google ile Giriş Yap'),
+      label: Text(l10n.googleLogin),
     );
   }
 }

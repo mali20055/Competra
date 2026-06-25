@@ -10,7 +10,8 @@
       "Bash(npm run *)",
       "PowerShell(firebase deploy *)",
       "Bash(git mv *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(firebase deploy *)"
     ]
   }
 }

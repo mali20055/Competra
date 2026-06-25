@@ -704,6 +704,12 @@
       "languageVersion": "3.4"
     },
     {
+      "name": "purchases_flutter",
+      "rootUri": "file:///C:/Users/mehme/AppData/Local/Pub/Cache/hosted/pub.dev/purchases_flutter-10.3.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
+    },
+    {
       "name": "qr",
       "rootUri": "file:///C:/Users/mehme/AppData/Local/Pub/Cache/hosted/pub.dev/qr-3.0.2",
       "packageUri": "lib/",
