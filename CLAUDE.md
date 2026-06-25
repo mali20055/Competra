@@ -225,9 +225,28 @@ firebase deploy --only firestore:rules --project competra-9e396
 - `firebase-functions` paketi "outdated" uyarısı veriyor (deploy'u engellemiyor;
   yükseltme breaking change içerebilir, ayrı iş olarak ele alınmalı).
 
+### Turnuva Düzenleme (EditTournamentScreen) ✅
+- `lib/screens/tournament/edit_tournament_screen.dart` — yalnızca 'waiting' turnuvalar erişebilir.
+- Düzenlenebilir: ad (max 50), not (max 200), skor giriş modu, tiebreaker modu.
+- Değiştirilemez: format, davet kodu (readonly gösterim).
+- Route: `/tournament/:id/edit` (`tournament-edit`). Lobby AppBar'da admin için düzenleme ikonu.
+
+### Katılımcı Çıkarma ✅
+- `TournamentRepository.removeParticipant()` — yalnızca 'waiting' turnuvadan çıkarır.
+- Lobby'de her katılımcının yanında (owner hariç, yalnızca admin) `remove_circle_outline` ikonu.
+- Onay AlertDialog gösterir; onaylanınca `participantIds`/`participants` güncellenir.
+
+### Turnuva Şablonları ✅
+- Firestore `templates` koleksiyonu; kural: yalnızca sahibi okur/yazar/siler.
+- `TournamentTemplate` + `saveAsTemplate()` + `myTemplatesProvider` (son 10).
+- Oluşturma adım 0: "Şablondan Başla" butonu → BottomSheet → seçilince form doldurulur.
+- Oluşturma sonrası: "Şablon olarak kaydet?" dialog.
+- `firestore.indexes.json`'a `templates (userId ASC, createdAt DESC)` indeks eklendi —
+  deploy için: `firebase deploy --only firestore:indexes --project competra-9e396`
+
 ## Sıradaki Olası İşler (öneri)
 
-- `firestore.rules`'u deploy etmek (DNS sorunu çözülünce).
+- templates indeksi deploy et: `firebase deploy --only firestore:indexes --project competra-9e396`
 - i18n: ekranlardaki sabit Türkçe string'leri `AppLocalizations`'a taşımak.
 - Profil fotoğrafı yükleme (maç kartı avatarları şu an baş harf placeholder).
 - iOS push yapılandırmasını Mac'te tamamlamak (Info.plist notuna bakın).
