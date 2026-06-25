@@ -4,8 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/utils/sort_utils.dart';
+import '../core/constants/app_constants.dart';
 import '../models/tournament.dart';
+import 'analytics_service.dart';
 import 'fixture_generator.dart';
 import 'firebase_providers.dart';
 
@@ -93,6 +94,7 @@ class TournamentRepository {
       'status': 'waiting',
       'createdAt': FieldValue.serverTimestamp(),
     });
+    AnalyticsService.logTournamentCreated(format).ignore();
     return doc.id;
   }
 
@@ -143,6 +145,7 @@ class TournamentRepository {
         });
       }
     }
+    AnalyticsService.logTournamentJoined().ignore();
     return doc.id;
   }
 
@@ -216,6 +219,7 @@ class TournamentRepository {
       'played': true,
       'status': 'completed',
     });
+    AnalyticsService.logMatchScoreEntered().ignore();
   }
 
   /// winnerEntry/doubleEntry modunda bir oyuncunun skor girişini kaydeder;
@@ -319,6 +323,49 @@ class TournamentRepository {
     if (username != null && username.isNotEmpty) return username;
     return user.isAnonymous ? 'Misafir' : 'Oyuncu';
   }
+
+  /// Tek bir turnuva belgesinin canlı olmayan anlık görüntüsü.
+  ///
+  /// "Daha fazla yükle" akışında, canlı ([myTournamentsStreamProvider]) ilk
+  /// sayfanın son öğesi için `startAfterDocument` anahtarı gereklidir; stream
+  /// yalnızca modelleri yayınladığından bu anahtar id ile tek seferlik bir
+  /// okumayla çözülür.
+  Future<DocumentSnapshot<Map<String, dynamic>>> docSnapshot(String id) {
+    return _tournaments.doc(id).get();
+  }
+
+  /// `startAfter`'dan sonraki turnuva sayfasını çeker.
+  Future<TournamentsPage> fetchNextPage({
+    required String uid,
+    required DocumentSnapshot<Map<String, dynamic>> startAfter,
+    int limit = AppConstants.tournamentsLimit,
+  }) async {
+    final snap = await _tournaments
+        .where('participantIds', arrayContains: uid)
+        .orderBy('createdAt', descending: true)
+        .startAfterDocument(startAfter)
+        .limit(limit)
+        .get();
+    return TournamentsPage(
+      items: snap.docs.map(Tournament.fromDoc).toList(),
+      lastDoc: snap.docs.isEmpty ? null : snap.docs.last,
+      hasMore: snap.docs.length == limit,
+    );
+  }
+}
+
+/// Bir turnuva sayfası: öğeler + sonraki sayfa için `startAfterDocument`
+/// anahtarı + daha fazla sayfa olup olmadığı.
+class TournamentsPage {
+  const TournamentsPage({
+    required this.items,
+    required this.lastDoc,
+    required this.hasMore,
+  });
+
+  final List<Tournament> items;
+  final DocumentSnapshot<Map<String, dynamic>>? lastDoc;
+  final bool hasMore;
 }
 
 final tournamentRepositoryProvider = Provider<TournamentRepository>(
@@ -328,10 +375,12 @@ final tournamentRepositoryProvider = Provider<TournamentRepository>(
   ),
 );
 
-/// O an oturum açmış kullanıcının katıldığı turnuvalar (en yeni en üstte).
+/// O an oturum açmış kullanıcının katıldığı en yeni
+/// [AppConstants.tournamentsLimit] turnuva (en yeni en üstte).
 ///
-/// `participantIds arrayContains` ile sorgulanır; sıralama, bileşik dizin
-/// gerektirmemek için istemci tarafında yapılır.
+/// `participantIds arrayContains` + `createdAt DESC` bileşik dizini gerektirir
+/// (bkz. firestore.indexes.json). Daha eskiler "Daha fazla yükle" ile
+/// [TournamentRepository.fetchNextPage] üzerinden ayrıca çekilir.
 final myTournamentsStreamProvider =
     StreamProvider<List<Tournament>>((ref) {
   final user = ref.watch(currentUserProvider);
@@ -340,12 +389,10 @@ final myTournamentsStreamProvider =
       .watch(firestoreProvider)
       .collection('tournaments')
       .where('participantIds', arrayContains: user.uid)
+      .orderBy('createdAt', descending: true)
+      .limit(AppConstants.tournamentsLimit)
       .snapshots()
-      .map((snap) {
-    final list = snap.docs.map(Tournament.fromDoc).toList()
-      ..sort((a, b) => compareByCreatedAtDesc(a.createdAt, b.createdAt));
-    return list;
-  });
+      .map((snap) => snap.docs.map(Tournament.fromDoc).toList());
 });
 
 /// Tek bir turnuvanın canlı verisi. Belge yoksa `null` yayınlar.

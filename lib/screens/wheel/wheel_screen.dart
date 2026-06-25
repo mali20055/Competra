@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/wheel.dart';
+import '../../services/analytics_service.dart';
 import '../../services/firebase_providers.dart';
 import '../../services/wheel_repository.dart';
 
@@ -111,6 +112,7 @@ class _WheelScreenState extends ConsumerState<WheelScreen>
       _currentSpinSlices = n;
       _lastTickIndex = null;
     });
+    AnalyticsService.logWheelSpun().ignore();
 
     _spinController.forward(from: 0).whenComplete(() {
       if (!mounted) return;

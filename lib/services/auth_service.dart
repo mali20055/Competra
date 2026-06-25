@@ -4,6 +4,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import 'analytics_service.dart';
 import 'firebase_providers.dart';
 
 /// Kullanıcıya gösterilebilir, Türkçe mesaj taşıyan kimlik doğrulama hatası.
@@ -132,10 +133,13 @@ class AuthService {
       throw const AuthException('Kullanıcı adı veya şifre hatalı.');
     }
     try {
-      await _auth.signInWithEmailAndPassword(
+      final cred = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
+      if (cred.user != null) {
+        AnalyticsService.setUserId(cred.user!.uid).ignore();
+      }
     } on FirebaseAuthException catch (e) {
       throw AuthException(_mapError(e));
     }
@@ -177,6 +181,7 @@ class AuthService {
       final user = cred.user;
       if (user != null) {
         await _ensureUserDocument(user);
+        AnalyticsService.setUserId(user.uid).ignore();
       }
       return true;
     } on FirebaseAuthException catch (e) {

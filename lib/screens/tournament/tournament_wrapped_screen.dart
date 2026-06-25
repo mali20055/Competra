@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/tournament.dart';
+import '../../services/analytics_service.dart';
 import '../../services/share_service.dart';
 import '../../services/tournament_repository.dart';
 
@@ -42,6 +43,7 @@ class _TournamentWrappedScreenState
     _screenConfetti.play();
     _championConfetti.play();
     HapticFeedback.heavyImpact();
+    AnalyticsService.logWrappedViewed().ignore();
   }
 
   @override

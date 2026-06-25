@@ -1,23 +1,70 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/time_ago.dart';
 import '../../models/app_notification.dart';
 import '../../router/route_paths.dart';
+import '../../services/firebase_providers.dart';
 import '../../services/notification_repository.dart';
 
 /// Bildirimler ekranı.
 ///
-/// Kullanıcının `notifications` belgelerini canlı dinler; maç onayı, arkadaşlık
-/// isteği ve turnuva daveti türlerini okundu/okunmadı durumuyla gösterir.
-/// Tüm renkler tema üzerinden gelir.
-class NotificationsScreen extends ConsumerWidget {
+/// Kullanıcının en yeni [AppConstants.notificationsLimit] bildirimini canlı
+/// dinler; maç onayı, arkadaşlık isteği ve turnuva daveti türlerini
+/// okundu/okunmadı durumuyla gösterir. Liste sonuna gelindiğinde "Daha fazla
+/// yükle" butonuyla bir önceki sayfayı [NotificationRepository.fetchNextPage]
+/// ile çekip mevcut listeye ekler. Tüm renkler tema üzerinden gelir.
+class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NotificationsScreen> createState() =>
+      _NotificationsScreenState();
+}
+
+class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
+  final List<AppNotification> _moreItems = [];
+  DocumentSnapshot<Map<String, dynamic>>? _lastDoc;
+  bool _hasMore = true;
+  bool _loadingMore = false;
+
+  Future<void> _loadMore(List<AppNotification> liveItems) async {
+    if (_loadingMore || !_hasMore) return;
+    final uid = ref.read(currentUserProvider)?.uid;
+    if (uid == null) return;
+
+    setState(() => _loadingMore = true);
+    final repo = ref.read(notificationRepositoryProvider);
+    try {
+      var anchor = _lastDoc;
+      if (anchor == null) {
+        // İlk "daha fazla yükle": canlı listenin son öğesinin belgesini çöz.
+        final loaded = [...liveItems, ..._moreItems];
+        if (loaded.isEmpty) {
+          setState(() => _loadingMore = false);
+          return;
+        }
+        anchor = await repo.docSnapshot(loaded.last.id);
+      }
+
+      final page = await repo.fetchNextPage(uid: uid, startAfter: anchor);
+      setState(() {
+        _moreItems.addAll(page.items);
+        _lastDoc = page.lastDoc ?? anchor;
+        _hasMore = page.hasMore;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      setState(() => _loadingMore = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final notificationsAsync = ref.watch(notificationsProvider);
 
     return Scaffold(
@@ -29,7 +76,8 @@ class NotificationsScreen extends ConsumerWidget {
           title: 'Bildirimler yüklenemedi',
           message: 'Lütfen daha sonra tekrar dene.',
         ),
-        data: (items) {
+        data: (liveItems) {
+          final items = [...liveItems, ..._moreItems];
           if (items.isEmpty) {
             return const _EmptyState(
               icon: Icons.notifications_none_outlined,
@@ -37,16 +85,55 @@ class NotificationsScreen extends ConsumerWidget {
               message: 'Yeni bir şey olduğunda burada göreceksin.',
             );
           }
+          // Canlı sayfa AppConstants.notificationsLimit'ten azsa zaten tüm
+          // bildirimler yüklenmiştir; "daha fazla yükle" gösterilmez.
+          final showLoadMore =
+              _hasMore && liveItems.length >= AppConstants.notificationsLimit;
           return ListView.separated(
             padding: const EdgeInsets.all(16),
-            itemCount: items.length,
+            itemCount: items.length + (showLoadMore ? 1 : 0),
             separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) => _NotificationTile(item: items[index])
-                .animate()
-                .fadeIn(delay: (index * 60).ms, duration: 320.ms)
-                .slideY(begin: 0.1, end: 0),
+            itemBuilder: (context, index) {
+              if (index >= items.length) {
+                return _LoadMoreButton(
+                  loading: _loadingMore,
+                  onPressed: () => _loadMore(liveItems),
+                );
+              }
+              return _NotificationTile(item: items[index])
+                  .animate()
+                  .fadeIn(delay: (index * 60).ms, duration: 320.ms)
+                  .slideY(begin: 0.1, end: 0);
+            },
           );
         },
+      ),
+    );
+  }
+}
+
+/// Liste sonundaki "Daha fazla yükle" butonu.
+class _LoadMoreButton extends StatelessWidget {
+  const _LoadMoreButton({required this.loading, required this.onPressed});
+
+  final bool loading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: loading
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              )
+            : OutlinedButton(
+                onPressed: onPressed,
+                child: const Text('Daha fazla yükle'),
+              ),
       ),
     );
   }

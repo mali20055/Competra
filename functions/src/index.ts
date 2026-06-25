@@ -47,7 +47,12 @@ type DocRef = FirebaseFirestore.DocumentReference;
 // ---------------------------------------------------------------------------
 
 export const onMatchWritten = onDocumentWritten(
-  "tournaments/{tournamentId}/matches/{matchId}",
+  {
+    document: "tournaments/{tournamentId}/matches/{matchId}",
+    region: "europe-west3",
+    minInstances: 1,
+    timeoutSeconds: 60,
+  },
   async (event) => {
     const {tournamentId, matchId} = event.params as {
       tournamentId: string;
@@ -357,7 +362,16 @@ async function runAchievements(uid: string): Promise<void> {
 // (b) + (c) Turnuva ilerleme / tamamlanma
 // ---------------------------------------------------------------------------
 
-/** Turnuvanın formatına göre ilerleme/tamamlanma durumunu değerlendirir. */
+/**
+ * Turnuvanın formatına göre ilerleme/tamamlanma durumunu değerlendirir.
+ *
+ * Okuma optimizasyonu: maç koleksiyonunun TAMAMINI her yazımda çekmek yerine,
+ * önce yalnızca mevcut `roundNumber` + `phase`'e ait maçlar çekilir. Bu dar
+ * sorgu turun henüz bitmediğini gösteriyorsa (tamamlanmamış maç varsa) tam
+ * koleksiyon okuma hiç yapılmadan erken çıkılır — büyük turnuvalarda her maç
+ * yazımında tüm maçların okunmasının önüne geçer. Tur/faz bilgisi yoksa (ör.
+ * eski belgeler) doğrudan tam okumaya düşülür.
+ */
 async function checkTournamentProgression(tournamentId: string): Promise<void> {
   const tRef = db.collection("tournaments").doc(tournamentId);
   const tSnap = await tRef.get();
@@ -366,11 +380,33 @@ async function checkTournamentProgression(tournamentId: string): Promise<void> {
   if (data.status === "completed") return;
 
   const tournament = parseTournament(tournamentId, data);
+  const currentRound =
+    typeof data.currentRound === "number" ? Math.trunc(data.currentRound) : null;
+  const currentPhase =
+    typeof data.currentPhase === "string" && data.currentPhase.length > 0 ?
+      data.currentPhase :
+      null;
+
+  if (currentRound !== null && currentPhase !== null) {
+    const roundSnapshot = await tRef
+      .collection("matches")
+      .where("roundNumber", "==", currentRound)
+      .where("phase", "==", currentPhase)
+      .get();
+    if (roundSnapshot.empty) return;
+    const allDone = roundSnapshot.docs.every((d) => {
+      const m = parseMatch(d.id, d.data());
+      return m.isBye || isFinal(m);
+    });
+    if (!allDone) return;
+  }
+
+  // Sadece (yukarıdaki dar sorguya göre) tur/faz bittiyse ya da tur bilgisi
+  // yoksa tam koleksiyonu oku — tur ilerletme veya şampiyon belirlemek için
+  // tüm maçların görülmesi gerekir.
   const matchesSnap = await tRef.collection("matches").get();
   if (matchesSnap.empty) return;
   const matches = matchesSnap.docs.map((d) => parseMatch(d.id, d.data()));
-  const currentRound =
-    typeof data.currentRound === "number" ? Math.trunc(data.currentRound) : null;
 
   switch (tournament.format) {
     case "knockout":

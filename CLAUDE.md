@@ -102,6 +102,13 @@ firestore.indexes.json           # Bileşik + tek-alan dizinleri (deploy edildi)
   (`invalid-registration-token` / `registration-token-not-registered`) Firestore'dan
   siler.
 
+### CI/CD
+- GitHub Actions: `.github/workflows/ci.yml`
+- Her push/PR'da otomatik: `flutter analyze`, `flutter test`, `tsc --noEmit`, `eslint`
+- Firebase Emulator: `firebase emulators:start`
+  - Auth: 9099, Firestore: 8080, Functions: 5001, UI: 4000
+- Functions test: `cd functions && npm test`
+
 ## Tamamlanan Özellikler (oturum geçmişi)
 
 ### Push Bildirimleri (FCM) — uçtan uca ✅
@@ -165,9 +172,22 @@ firestore.indexes.json           # Bileşik + tek-alan dizinleri (deploy edildi)
 
 ### Dağıtım durumu
 - **Firestore indexes:** deploy edildi.
-- **Cloud Functions:** deploy edildi (`onMatchWritten`, `onNotificationCreated`).
+- **Cloud Functions:** deploy edildi (`onMatchWritten` — minInstances:1, timeoutSeconds:60; `onNotificationCreated`).
 - **Firestore rules:** deploy edildi.
 - **Storage rules:** deploy edildi.
+
+### Firebase App Check
+- `firebase_app_check` paketi eklendi; `main.dart`'ta `Firebase.initializeApp` sonrası
+  `PlayIntegrity` (Android) + `AppAttest` (iOS) ile aktive edildi.
+- **ÖNEMLİ:** Tam çalışması için Firebase Console → App Check bölümünden her platform
+  için App Check etkinleştirilmeli ve uygulama kayıt edilmelidir. Geliştirme ortamında
+  debug token kullanılabilir (Flutter debug modunda otomatik). Console linki:
+  Firebase Console → App Check → Uygulamalar.
+
+### Firebase Analytics
+- `firebase_analytics` paketi eklendi; `lib/services/analytics_service.dart` ile
+  kapsanıyor. Tetiklenen olaylar: `tournament_created`, `tournament_joined`,
+  `match_score_entered`, `wheel_spin`, `wrapped_viewed`, `share_result`, `invite_sent`.
 
 ## Komutlar
 

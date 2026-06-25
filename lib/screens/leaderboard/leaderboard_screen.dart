@@ -1,7 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../components/skeleton_widgets.dart';
+import '../../core/constants/app_constants.dart';
 import '../../models/user_profile.dart';
 import '../../services/firebase_providers.dart';
 
@@ -27,18 +30,54 @@ enum LeaderboardMetric {
       };
 }
 
-/// Seçilen [LeaderboardMetric]'e göre, ilgili alanda azalan sıralı ilk 50
-/// kullanıcıyı canlı yayınlar (`users` koleksiyonu).
+/// Seçilen [LeaderboardMetric]'e göre, ilgili alanda azalan sıralı ilk
+/// [AppConstants.leaderboardLimit] kullanıcıyı canlı yayınlar (`users`
+/// koleksiyonu). Daha fazlası "Daha fazla yükle" ile [fetchNextLeaderboardPage]
+/// üzerinden ayrıca çekilir.
 final leaderboardProvider =
     StreamProvider.family<List<UserProfile>, LeaderboardMetric>((ref, metric) {
   return ref
       .watch(firestoreProvider)
       .collection('users')
       .orderBy(metric.field, descending: true)
-      .limit(50)
+      .limit(AppConstants.leaderboardLimit)
       .snapshots()
       .map((snap) => snap.docs.map(UserProfile.fromDoc).toList());
 });
+
+/// Bir liderlik tablosu sayfası: öğeler + sonraki sayfa için
+/// `startAfterDocument` anahtarı + daha fazla sayfa olup olmadığı.
+class LeaderboardPage {
+  const LeaderboardPage({
+    required this.items,
+    required this.lastDoc,
+    required this.hasMore,
+  });
+
+  final List<UserProfile> items;
+  final DocumentSnapshot<Map<String, dynamic>>? lastDoc;
+  final bool hasMore;
+}
+
+/// `startAfter`'dan sonraki liderlik tablosu sayfasını çeker.
+Future<LeaderboardPage> fetchNextLeaderboardPage({
+  required FirebaseFirestore firestore,
+  required LeaderboardMetric metric,
+  required DocumentSnapshot<Map<String, dynamic>> startAfter,
+  int limit = AppConstants.leaderboardLimit,
+}) async {
+  final snap = await firestore
+      .collection('users')
+      .orderBy(metric.field, descending: true)
+      .startAfterDocument(startAfter)
+      .limit(limit)
+      .get();
+  return LeaderboardPage(
+    items: snap.docs.map(UserProfile.fromDoc).toList(),
+    lastDoc: snap.docs.isEmpty ? null : snap.docs.last,
+    hasMore: snap.docs.length == limit,
+  );
+}
 
 /// Global liderlik tablosu ekranı.
 ///
@@ -56,6 +95,55 @@ class LeaderboardScreen extends ConsumerStatefulWidget {
 class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
   LeaderboardMetric _metric = LeaderboardMetric.wins;
 
+  final List<UserProfile> _moreItems = [];
+  DocumentSnapshot<Map<String, dynamic>>? _lastDoc;
+  bool _hasMore = true;
+  bool _loadingMore = false;
+
+  void _changeMetric(LeaderboardMetric metric) {
+    setState(() {
+      _metric = metric;
+      // Ölçüt değişince sıralama tamamen değişir; eklenen sayfaları sıfırla.
+      _moreItems.clear();
+      _lastDoc = null;
+      _hasMore = true;
+      _loadingMore = false;
+    });
+  }
+
+  Future<void> _loadMore(List<UserProfile> liveItems) async {
+    if (_loadingMore || !_hasMore) return;
+
+    setState(() => _loadingMore = true);
+    final firestore = ref.read(firestoreProvider);
+    try {
+      var anchor = _lastDoc;
+      if (anchor == null) {
+        final loaded = [...liveItems, ..._moreItems];
+        if (loaded.isEmpty) {
+          setState(() => _loadingMore = false);
+          return;
+        }
+        anchor =
+            await firestore.collection('users').doc(loaded.last.uid).get();
+      }
+
+      final page = await fetchNextLeaderboardPage(
+        firestore: firestore,
+        metric: _metric,
+        startAfter: anchor,
+      );
+      setState(() {
+        _moreItems.addAll(page.items);
+        _lastDoc = page.lastDoc ?? anchor;
+        _hasMore = page.hasMore;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      setState(() => _loadingMore = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final entriesAsync = ref.watch(leaderboardProvider(_metric));
@@ -67,22 +155,32 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
         children: [
           _MetricSelector(
             selected: _metric,
-            onChanged: (m) => setState(() => _metric = m),
+            onChanged: _changeMetric,
           ),
           Expanded(
             child: entriesAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => Column(
+                children: List.generate(6, (_) => const SkeletonListTile()),
+              ),
               error: (_, __) => const _EmptyState(message: 'Henüz veri yok'),
-              data: (entries) {
+              data: (liveItems) {
+                final entries = [...liveItems, ..._moreItems];
                 if (entries.isEmpty) {
                   return const _EmptyState(message: 'Henüz veri yok');
                 }
+                final showLoadMore = _hasMore &&
+                    liveItems.length >= AppConstants.leaderboardLimit;
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  itemCount: entries.length,
+                  itemCount: entries.length + (showLoadMore ? 1 : 0),
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
+                    if (index >= entries.length) {
+                      return _LoadMoreButton(
+                        loading: _loadingMore,
+                        onPressed: () => _loadMore(liveItems),
+                      );
+                    }
                     final profile = entries[index];
                     return _LeaderboardTile(
                       rank: index + 1,
@@ -99,6 +197,33 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Liste sonundaki "Daha fazla yükle" butonu.
+class _LoadMoreButton extends StatelessWidget {
+  const _LoadMoreButton({required this.loading, required this.onPressed});
+
+  final bool loading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: loading
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              )
+            : OutlinedButton(
+                onPressed: onPressed,
+                child: const Text('Daha fazla yükle'),
+              ),
       ),
     );
   }

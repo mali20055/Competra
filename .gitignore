@@ -51,3 +51,8 @@ apps/backend/prisma/*.db-journal
 
 plans/
 stitch_competra_tournament_manager/
+
+# Firebase
+functions/coverage/
+.firebase/
+.firebaserc.local

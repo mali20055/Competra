@@ -1,11 +1,15 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../components/skeleton_widgets.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/utils/format_labels.dart';
 import '../../models/tournament.dart';
 import '../../router/route_paths.dart';
+import '../../services/firebase_providers.dart';
 import '../../services/tournament_repository.dart';
 
 /// Turnuva durumuna göre liste filtresi.
@@ -37,6 +41,69 @@ class LeaguesScreen extends ConsumerStatefulWidget {
 
 class _LeaguesScreenState extends ConsumerState<LeaguesScreen> {
   _TournamentFilter _filter = _TournamentFilter.active;
+  final ScrollController _scrollController = ScrollController();
+
+  final List<Tournament> _moreItems = [];
+  DocumentSnapshot<Map<String, dynamic>>? _lastDoc;
+  bool _hasMore = true;
+  bool _loadingMore = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final nearBottom = _scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200;
+    if (nearBottom) {
+      final liveItems = ref.read(myTournamentsStreamProvider).asData?.value;
+      if (liveItems != null) _loadMore(liveItems);
+    }
+  }
+
+  Future<void> _loadMore(List<Tournament> liveItems) async {
+    if (_loadingMore || !_hasMore) return;
+    final uid = ref.read(currentUserProvider)?.uid;
+    if (uid == null) return;
+    // Canlı sayfa limitten azsa zaten tüm turnuvalar yüklenmiştir.
+    if (liveItems.length < AppConstants.tournamentsLimit && _lastDoc == null) {
+      return;
+    }
+
+    setState(() => _loadingMore = true);
+    final repo = ref.read(tournamentRepositoryProvider);
+    try {
+      var anchor = _lastDoc;
+      if (anchor == null) {
+        final loaded = [...liveItems, ..._moreItems];
+        if (loaded.isEmpty) {
+          setState(() => _loadingMore = false);
+          return;
+        }
+        anchor = await repo.docSnapshot(loaded.last.id);
+      }
+
+      final page = await repo.fetchNextPage(uid: uid, startAfter: anchor);
+      setState(() {
+        _moreItems.addAll(page.items);
+        _lastDoc = page.lastDoc ?? anchor;
+        _hasMore = page.hasMore;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      setState(() => _loadingMore = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,22 +133,38 @@ class _LeaguesScreenState extends ConsumerState<LeaguesScreen> {
           ),
           Expanded(
             child: tournamentsAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
+              loading: () => Column(
+                children: List.generate(4, (_) => const SkeletonCard()),
+              ),
               error: (_, __) => const _EmptyState(
                 icon: Icons.cloud_off_outlined,
                 message: 'Turnuvalar yüklenemedi.',
               ),
-              data: (tournaments) {
-                final filtered =
-                    tournaments.where(_filter.matches).toList();
+              data: (liveItems) {
+                final all = [...liveItems, ..._moreItems];
+                final filtered = all.where(_filter.matches).toList();
                 if (filtered.isEmpty) {
                   return _EmptyTournaments(filter: _filter);
                 }
+                final showLoadingFooter = _loadingMore;
                 return ListView.separated(
+                  controller: _scrollController,
                   padding: const EdgeInsets.all(16),
-                  itemCount: filtered.length,
+                  itemCount: filtered.length + (showLoadingFooter ? 1 : 0),
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
+                    if (index >= filtered.length) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2.5),
+                          ),
+                        ),
+                      );
+                    }
                     final t = filtered[index];
                     return _TournamentCard(
                       tournament: t,

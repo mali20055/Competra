@@ -8,7 +8,9 @@
       "Bash(firebase --version)",
       "Bash(npm --version)",
       "Bash(npm run *)",
-      "PowerShell(firebase deploy *)"
+      "PowerShell(firebase deploy *)",
+      "Bash(git mv *)",
+      "Bash(npm install *)"
     ]
   }
 }

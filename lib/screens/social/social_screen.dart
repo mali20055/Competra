@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../components/skeleton_widgets.dart';
 import '../../core/time_ago.dart';
 import '../../models/friend_group.dart';
 import '../../models/friendship.dart';
@@ -299,7 +300,9 @@ class _FriendsAndRequests extends ConsumerWidget {
     final groups = groupsAsync.asData?.value ?? const <FriendGroup>[];
 
     if (friendsAsync.isLoading && friends.isEmpty && requests.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return Column(
+        children: List.generate(4, (_) => const SkeletonListTile()),
+      );
     }
 
     if (requests.isEmpty && friends.isEmpty && groups.isEmpty) {

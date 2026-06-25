@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -176,10 +177,15 @@ class _Header extends StatelessWidget {
             ),
             child: profile.coverUrl.isEmpty
                 ? null
-                : Image.network(
-                    profile.coverUrl,
+                : CachedNetworkImage(
+                    imageUrl: profile.coverUrl,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    placeholder: (ctx, _) => Container(
+                      color: Theme.of(ctx)
+                          .colorScheme
+                          .surfaceContainerHighest,
+                    ),
+                    errorWidget: (ctx, _, __) => const SizedBox.shrink(),
                   ),
           ),
           // Profili düzenle ikonu (sol üst).

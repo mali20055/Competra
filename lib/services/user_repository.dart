@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/constants/app_constants.dart';
 import '../models/tournament.dart';
 import '../models/user_profile.dart';
 import 'firebase_providers.dart';
@@ -90,9 +91,12 @@ class RecentMatchResult {
 /// "son" maçlar, fikstür oluşturma zamanı (`createdAt`) ve maç sırası (`order`)
 /// ile yaklaşık belirlenir. Misafir/oturumsuz kullanıcıda boş döner.
 ///
-/// NOT: Koleksiyon-grubu sorguları `matches.homeUid` ve `matches.awayUid` için
-/// COLLECTION_GROUP kapsamlı tek-alan dizinleri gerektirir
-/// (bkz. firestore.indexes.json).
+/// NOT: Koleksiyon-grubu sorguları `homeUid`+`createdAt` ve `awayUid`+`createdAt`
+/// için COLLECTION_GROUP kapsamlı bileşik dizinler gerektirir (bkz.
+/// firestore.indexes.json). `orderBy('createdAt')` olmadan yalnızca
+/// `limit(20)` eklemek, Firestore'un keyfi (en yeni olmayan) belgeleri
+/// döndürmesine yol açabileceğinden — ki bu "son maçlar" anlamını bozar —
+/// limitle birlikte azalan `createdAt` sıralaması da eklenmiştir.
 final userRecentMatchesProvider =
     FutureProvider.autoDispose<List<RecentMatchResult>>((ref) async {
   final user = ref.watch(currentUserProvider);
@@ -101,8 +105,18 @@ final userRecentMatchesProvider =
   final uid = user.uid;
 
   final snaps = await Future.wait([
-    firestore.collectionGroup('matches').where('homeUid', isEqualTo: uid).get(),
-    firestore.collectionGroup('matches').where('awayUid', isEqualTo: uid).get(),
+    firestore
+        .collectionGroup('matches')
+        .where('homeUid', isEqualTo: uid)
+        .orderBy('createdAt', descending: true)
+        .limit(AppConstants.recentMatchesLimit)
+        .get(),
+    firestore
+        .collectionGroup('matches')
+        .where('awayUid', isEqualTo: uid)
+        .orderBy('createdAt', descending: true)
+        .limit(AppConstants.recentMatchesLimit)
+        .get(),
   ]);
 
   final seen = <String>{};

@@ -6,6 +6,8 @@ import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'analytics_service.dart';
+
 /// Paylaşılabilir görsel üretimi ve paylaşımı.
 ///
 /// Bir [RepaintBoundary]'nin ekran görüntüsünü alır, PNG'e çevirip geçici bir
@@ -42,11 +44,13 @@ class ShareService {
     await SharePlus.instance.share(
       ShareParams(files: [XFile(file.path)], text: text),
     );
+    AnalyticsService.logShareResult().ignore();
   }
 
   /// Yalnızca metin paylaşır.
-  static Future<void> shareText(String text) {
-    return SharePlus.instance.share(ShareParams(text: text));
+  static Future<void> shareText(String text) async {
+    await SharePlus.instance.share(ShareParams(text: text));
+    AnalyticsService.logShareResult().ignore();
   }
 }
 

@@ -1,0 +1,55 @@
+name: Competra CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  flutter:
+    name: Flutter Analyze & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Flutter kurulum
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.1'
+          channel: stable
+          cache: true
+
+      - name: Bağımlılıkları yükle
+        run: flutter pub get
+
+      - name: Analiz
+        run: flutter analyze
+
+      - name: Testleri çalıştır
+        run: flutter test --coverage
+
+  functions:
+    name: Cloud Functions Lint & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: functions
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node.js kurulum
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Bağımlılıkları yükle
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript derleme kontrolü
+        run: npx tsc --noEmit
