@@ -10,6 +10,36 @@ import 'analytics_service.dart';
 import 'fixture_generator.dart';
 import 'firebase_providers.dart';
 
+/// Turnuva şablonu — kullanıcının kaydettiği oluşturma ayarları.
+class TournamentTemplate {
+  const TournamentTemplate({
+    required this.id,
+    required this.name,
+    required this.format,
+    required this.scoreMode,
+    required this.tiebreakerMode,
+  });
+
+  final String id;
+  final String name;
+  final String format;
+  final String scoreMode;
+  final String tiebreakerMode;
+
+  factory TournamentTemplate.fromDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    return TournamentTemplate(
+      id: doc.id,
+      name: (data['name'] as String?) ?? '',
+      format: (data['format'] as String?) ?? '',
+      scoreMode: (data['scoreMode'] as String?) ?? '',
+      tiebreakerMode: (data['tiebreakerMode'] as String?) ?? 'uefa',
+    );
+  }
+}
+
 /// Verilen davet koduyla turnuva bulunamadığında fırlatılır.
 class TournamentNotFoundException implements Exception {
   const TournamentNotFoundException();
@@ -324,6 +354,50 @@ class TournamentRepository {
     return user.isAnonymous ? 'Misafir' : 'Oyuncu';
   }
 
+  /// Bekleme ('waiting') durumundaki bir turnuvadan katılımcıyı çıkarır.
+  ///
+  /// Turnuva başlamışsa hata fırlatır. `participantIds` dizisinden ve
+  /// `participants` listesinden ilgili kullanıcıyı temizler.
+  Future<void> removeParticipant({
+    required String tournamentId,
+    required String participantUid,
+  }) async {
+    final doc = await _tournaments.doc(tournamentId).get();
+    final status = (doc.data()?['status'] as String?) ?? '';
+    if (status != 'waiting') {
+      throw Exception('Başlamış turnuvadan katılımcı çıkarılamaz.');
+    }
+    final participants = List<Map<String, dynamic>>.from(
+      (doc.data()?['participants'] as List<dynamic>? ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map)),
+    );
+    participants.removeWhere((p) => p['uid'] == participantUid);
+
+    await _tournaments.doc(tournamentId).update({
+      'participantIds': FieldValue.arrayRemove([participantUid]),
+      'participants': participants,
+    });
+  }
+
+  /// Mevcut kullanıcının `templates` koleksiyonuna bir şablon kaydeder.
+  Future<void> saveAsTemplate({
+    required String name,
+    required String format,
+    required String scoreMode,
+    required String tiebreakerMode,
+  }) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return;
+    await _firestore.collection('templates').add({
+      'userId': uid,
+      'name': name,
+      'format': format,
+      'scoreMode': scoreMode,
+      'tiebreakerMode': tiebreakerMode,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   /// Tek bir turnuva belgesinin canlı olmayan anlık görüntüsü.
   ///
   /// "Daha fazla yükle" akışında, canlı ([myTournamentsStreamProvider]) ilk
@@ -424,4 +498,23 @@ final matchesStreamProvider =
       });
     return matches;
   });
+});
+
+/// Oturum açmış kullanıcının kayıtlı turnuva şablonları (en yeni 10).
+final myTemplatesProvider =
+    StreamProvider<List<TournamentTemplate>>((ref) {
+  final user = ref.watch(currentUserProvider);
+  if (user == null) return Stream.value(const []);
+  return ref
+      .watch(firestoreProvider)
+      .collection('templates')
+      .where('userId', isEqualTo: user.uid)
+      .orderBy('createdAt', descending: true)
+      .limit(10)
+      .snapshots()
+      .map(
+        (snap) => snap.docs
+            .map(TournamentTemplate.fromDoc)
+            .toList(),
+      );
 });

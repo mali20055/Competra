@@ -18,6 +18,7 @@ import '../screens/social/friend_group_screen.dart';
 import '../screens/social/social_screen.dart';
 import '../screens/splash/splash_screen.dart';
 import '../screens/tournament/create_tournament_screen.dart';
+import '../screens/tournament/edit_tournament_screen.dart';
 import '../screens/tournament/join_tournament_screen.dart';
 import '../screens/tournament/tournament_detail_screen.dart';
 import '../screens/tournament/tournament_wrapped_screen.dart';
@@ -213,6 +214,14 @@ class AppRouter {
         parentNavigatorKey: _rootKey,
         builder: (context, state) => UserProfileScreen(
           uid: state.pathParameters['uid'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: RoutePaths.editTournament,
+        name: RoutePaths.editTournamentName,
+        parentNavigatorKey: _rootKey,
+        builder: (context, state) => EditTournamentScreen(
+          tournamentId: state.pathParameters['id'] ?? '',
         ),
       ),
     ],

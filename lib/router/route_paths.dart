@@ -76,4 +76,8 @@ class RoutePaths {
   /// Oyuncu profili ziyareti — `:uid` path parametresi alır.
   static const String userProfile = '/user/:uid';
   static const String userProfileName = 'user-profile';
+
+  /// Turnuva düzenleme — `:id` path parametresi alır. Yalnızca 'waiting' turnuvalar.
+  static const String editTournament = '/tournament/:id/edit';
+  static const String editTournamentName = 'tournament-edit';
 }
