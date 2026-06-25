@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/utils/format_labels.dart';
@@ -9,6 +10,50 @@ import '../../models/tournament.dart';
 import '../../router/route_paths.dart';
 import '../../services/firebase_providers.dart';
 import '../../services/tournament_repository.dart';
+
+/// Turnuvanın QR kodunu ve davet kodunu bir modal bottom sheet'te gösterir.
+void _showQrModal(BuildContext context, Tournament tournament) {
+  showModalBottomSheet<void>(
+    context: context,
+    builder: (_) => Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            tournament.name,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 16),
+          QrImageView(
+            data: 'competra://join/${tournament.inviteCode}',
+            size: 200,
+            backgroundColor: Colors.white,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Davet Kodu: ${tournament.inviteCode}',
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: () {
+              SharePlus.instance.share(
+                ShareParams(
+                  text: '${tournament.name} turnuvasına katıl!\n'
+                      'Kod: ${tournament.inviteCode}\n'
+                      'competra://join/${tournament.inviteCode}',
+                ),
+              );
+            },
+            icon: const Icon(Icons.share),
+            label: const Text('Paylaş'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
 /// Turnuvayı sistem paylaşım sayfasıyla (WhatsApp vb.) davet metni olarak paylaşır.
 Future<void> _shareTournament(Tournament tournament) {
@@ -98,6 +143,11 @@ class _DetailView extends ConsumerWidget {
                   pathParameters: {'id': tournament.id},
                 ),
               ),
+            IconButton(
+              icon: const Icon(Icons.qr_code),
+              tooltip: 'QR Kod',
+              onPressed: () => _showQrModal(context, tournament),
+            ),
             IconButton(
               icon: const Icon(Icons.share_outlined),
               tooltip: 'Paylaş',

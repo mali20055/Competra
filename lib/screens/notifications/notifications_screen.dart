@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -89,22 +90,28 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
           // bildirimler yüklenmiştir; "daha fazla yükle" gösterilmez.
           final showLoadMore =
               _hasMore && liveItems.length >= AppConstants.notificationsLimit;
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: items.length + (showLoadMore ? 1 : 0),
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              if (index >= items.length) {
-                return _LoadMoreButton(
-                  loading: _loadingMore,
-                  onPressed: () => _loadMore(liveItems),
-                );
-              }
-              return _NotificationTile(item: items[index])
-                  .animate()
-                  .fadeIn(delay: (index * 60).ms, duration: 320.ms)
-                  .slideY(begin: 0.1, end: 0);
+          return RefreshIndicator(
+            color: Theme.of(context).colorScheme.primary,
+            onRefresh: () async {
+              ref.invalidate(notificationsProvider);
             },
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length + (showLoadMore ? 1 : 0),
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                if (index >= items.length) {
+                  return _LoadMoreButton(
+                    loading: _loadingMore,
+                    onPressed: () => _loadMore(liveItems),
+                  );
+                }
+                return _NotificationTile(item: items[index])
+                    .animate()
+                    .fadeIn(delay: (index * 60).ms, duration: 320.ms)
+                    .slideY(begin: 0.1, end: 0);
+              },
+            ),
           );
         },
       ),
@@ -244,6 +251,7 @@ class _NotificationTile extends ConsumerWidget {
   Future<void> _onTap(BuildContext context, WidgetRef ref) async {
     if (!item.read) {
       await ref.read(notificationRepositoryProvider).markRead(item.id);
+      HapticFeedback.lightImpact();
     }
     if (!context.mounted) return;
     final tournamentId = item.tournamentId;

@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <!-- Push bildirimleri (FCM) için (Android 13+ runtime izni). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- QR kod tarayıcı (mobile_scanner) için kamera izni. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
     <application
         android:label="competra"
         android:name="${applicationName}"

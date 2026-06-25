@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -170,6 +171,7 @@ class _CreateTournamentScreenState
                 : _selectedTiebreaker,
           );
       if (!mounted) return;
+      HapticFeedback.heavyImpact();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Turnuva oluşturuldu.')),
       );

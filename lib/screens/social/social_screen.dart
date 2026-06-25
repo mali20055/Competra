@@ -3,6 +3,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:flutter/services.dart';
+
 import '../../components/skeleton_widgets.dart';
 import '../../core/time_ago.dart';
 import '../../models/friend_group.dart';
@@ -74,6 +76,7 @@ class _SocialScreenState extends ConsumerState<SocialScreen> {
         ref.read(userProfileProvider).asData?.value?.username ?? 'Oyuncu';
 
     setState(() => _sentTo.add(target.uid));
+    HapticFeedback.mediumImpact();
     try {
       await ref.read(socialRepositoryProvider).sendRequest(
             me: Participant(uid: user.uid, username: myName),
@@ -314,7 +317,13 @@ class _FriendsAndRequests extends ConsumerWidget {
       );
     }
 
-    return ListView(
+    return RefreshIndicator(
+      color: Theme.of(context).colorScheme.primary,
+      onRefresh: () async {
+        ref.invalidate(friendsProvider);
+        ref.invalidate(myFriendGroupsProvider);
+      },
+      child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
         if (groups.isNotEmpty) ...[
@@ -365,6 +374,7 @@ class _FriendsAndRequests extends ConsumerWidget {
             ),
         ],
       ],
+      ),
     );
   }
 }
@@ -417,9 +427,10 @@ class _RequestTile extends ConsumerWidget {
           IconButton(
             tooltip: 'Onayla',
             icon: Icon(Icons.check_circle, color: scheme.primary),
-            onPressed: () => ref
-                .read(socialRepositoryProvider)
-                .acceptRequest(request.id),
+            onPressed: () {
+              HapticFeedback.heavyImpact();
+              ref.read(socialRepositoryProvider).acceptRequest(request.id);
+            },
           ),
           IconButton(
             tooltip: 'Reddet',

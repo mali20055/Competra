@@ -76,7 +76,9 @@ class _TournamentWrappedScreenState
     final confettiColors = [
       scheme.primary,
       scheme.secondary,
-      scheme.tertiary,
+      Colors.amber,
+      Colors.white,
+      Colors.greenAccent,
     ];
 
     final tournamentAsync =

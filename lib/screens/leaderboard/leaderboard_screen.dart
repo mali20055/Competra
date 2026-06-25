@@ -170,7 +170,12 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
                 }
                 final showLoadMore = _hasMore &&
                     liveItems.length >= AppConstants.leaderboardLimit;
-                return ListView.separated(
+                return RefreshIndicator(
+                  color: Theme.of(context).colorScheme.primary,
+                  onRefresh: () async {
+                    ref.invalidate(leaderboardProvider);
+                  },
+                  child: ListView.separated(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   itemCount: entries.length + (showLoadMore ? 1 : 0),
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -192,6 +197,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
                         .fadeIn(delay: (index * 50).ms, duration: 320.ms)
                         .slideX(begin: 0.1, end: 0);
                   },
+                  ),
                 );
               },
             ),

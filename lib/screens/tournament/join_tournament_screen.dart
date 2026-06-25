@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../router/route_paths.dart';
 import '../../services/tournament_repository.dart';
+import 'qr_scanner_screen.dart';
 
 /// Davet koduyla turnuvaya katılma ekranı.
 ///
@@ -48,6 +49,20 @@ class _JoinTournamentScreenState extends ConsumerState<JoinTournamentScreen> {
 
   bool get _isComplete => _controller.text.trim().length == _codeLength;
 
+  Future<void> _scanQR() async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => QrScannerScreen(
+          onCodeScanned: (code) {
+            _controller.text = code;
+            setState(() {});
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _join() async {
     if (_loading || !_isComplete) return;
     FocusScope.of(context).unfocus();
@@ -61,6 +76,7 @@ class _JoinTournamentScreenState extends ConsumerState<JoinTournamentScreen> {
           .read(tournamentRepositoryProvider)
           .joinByInviteCode(_controller.text);
       if (!mounted) return;
+      HapticFeedback.heavyImpact();
       context.pushReplacementNamed(
         RoutePaths.tournamentDetailName,
         pathParameters: {'id': id},
@@ -148,7 +164,13 @@ class _JoinTournamentScreenState extends ConsumerState<JoinTournamentScreen> {
                   ],
                 ),
               ],
-              const SizedBox(height: 32),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _loading ? null : _scanQR,
+                icon: const Icon(Icons.qr_code_scanner),
+                label: const Text('QR ile Katıl'),
+              ),
+              const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: (_isComplete && !_loading) ? _join : null,
                 child: _loading

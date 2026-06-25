@@ -32,7 +32,13 @@ class HomeScreen extends ConsumerWidget {
       body: PitchPatternBackground(
         child: SafeArea(
           top: false,
-          child: ListView(
+          child: RefreshIndicator(
+            color: Theme.of(context).colorScheme.primary,
+            onRefresh: () async {
+              ref.invalidate(myTournamentsStreamProvider);
+              ref.invalidate(notificationsProvider);
+            },
+            child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
             children: [
               const _ActionButtons()
@@ -67,6 +73,7 @@ class HomeScreen extends ConsumerWidget {
                   .fadeIn(delay: 200.ms, duration: 450.ms)
                   .slideY(begin: 0.12, end: 0),
             ],
+            ),
           ),
         ),
       ),

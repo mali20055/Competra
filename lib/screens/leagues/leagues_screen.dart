@@ -147,7 +147,15 @@ class _LeaguesScreenState extends ConsumerState<LeaguesScreen> {
                   return _EmptyTournaments(filter: _filter);
                 }
                 final showLoadingFooter = _loadingMore;
-                return ListView.separated(
+                return RefreshIndicator(
+                  color: Theme.of(context).colorScheme.primary,
+                  onRefresh: () async {
+                    ref.invalidate(myTournamentsStreamProvider);
+                    await ref
+                        .read(myTournamentsStreamProvider.future)
+                        .catchError((_) => <Tournament>[]);
+                  },
+                  child: ListView.separated(
                   controller: _scrollController,
                   padding: const EdgeInsets.all(16),
                   itemCount: filtered.length + (showLoadingFooter ? 1 : 0),
@@ -180,6 +188,7 @@ class _LeaguesScreenState extends ConsumerState<LeaguesScreen> {
                         )
                         .slideY(begin: 0.15, end: 0);
                   },
+                  ),
                 );
               },
             ),
