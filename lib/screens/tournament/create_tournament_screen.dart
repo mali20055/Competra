@@ -160,18 +160,55 @@ class _CreateTournamentScreenState
 
     setState(() => _submitting = true);
 
+    final effectiveTiebreaker = format == TournamentFormat.knockout
+        ? TiebreakerMode.uefa
+        : _selectedTiebreaker;
+
     try {
       final id = await ref.read(tournamentRepositoryProvider).createTournament(
             name: _nameController.text.trim(),
             note: _noteController.text.trim(),
             format: format.name,
             scoreMode: scoreMode.name,
-            tiebreakerMode: format == TournamentFormat.knockout
-                ? TiebreakerMode.uefa
-                : _selectedTiebreaker,
+            tiebreakerMode: effectiveTiebreaker,
           );
       if (!mounted) return;
       HapticFeedback.heavyImpact();
+
+      // Şablon kaydetme teklifi
+      final shouldSave = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Şablon Olarak Kaydet'),
+          content: const Text(
+            'Bu ayarları gelecekte tekrar kullanmak ister misin?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Hayır'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Evet'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldSave == true && mounted) {
+        ref
+            .read(tournamentRepositoryProvider)
+            .saveAsTemplate(
+              name: _nameController.text.trim(),
+              format: format.name,
+              scoreMode: scoreMode.name,
+              tiebreakerMode: effectiveTiebreaker.value,
+            )
+            .ignore();
+      }
+
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Turnuva oluşturuldu.')),
       );
@@ -196,6 +233,106 @@ class _CreateTournamentScreenState
     }
   }
 
+  // ── Şablondan Başla ────────────────────────────────────────────────
+
+  void _showTemplateSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => Consumer(
+        builder: (_, ref, __) {
+          final templatesAsync = ref.watch(myTemplatesProvider);
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Şablon Seç',
+                    style: Theme.of(sheetCtx).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  templatesAsync.when(
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
+                    error: (_, __) =>
+                        const Center(child: Text('Yüklenemedi.')),
+                    data: (templates) {
+                      if (templates.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Center(
+                            child: Text('Henüz kaydedilmiş şablon yok.'),
+                          ),
+                        );
+                      }
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final t in templates)
+                            ListTile(
+                              title: Text(t.name),
+                              subtitle: Text(
+                                '${_formatDisplayName(t.format)} • '
+                                '${_scoreModeDisplayName(t.scoreMode)}',
+                              ),
+                              leading: const Icon(Icons.bookmark_outlined),
+                              onTap: () {
+                                Navigator.of(sheetCtx).pop();
+                                _applyTemplate(t);
+                              },
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _applyTemplate(TournamentTemplate template) {
+    TournamentFormat? format;
+    try {
+      format = TournamentFormat.values.byName(template.format);
+    } catch (_) {}
+
+    ScoreEntryMode? scoreMode;
+    try {
+      scoreMode = ScoreEntryMode.values.byName(template.scoreMode);
+    } catch (_) {}
+
+    setState(() {
+      _nameController.text = template.name;
+      if (format != null) _selectedFormat = format;
+      if (scoreMode != null) _selectedScoreMode = scoreMode;
+      _selectedTiebreaker = TiebreakerMode.fromString(template.tiebreakerMode);
+    });
+  }
+
+  static String _formatDisplayName(String format) => switch (format) {
+        'league' => 'Lig',
+        'knockout' => 'Eleme',
+        'groupKnockout' => 'Grup+Eleme',
+        'championsLeague' => 'Şampiyonlar Ligi',
+        _ => format,
+      };
+
+  static String _scoreModeDisplayName(String scoreMode) => switch (scoreMode) {
+        'adminOnly' => 'Sadece Admin',
+        'winnerEnters' => 'Kazanan Girer',
+        'bothPlayers' => 'Çift Giriş',
+        _ => scoreMode,
+      };
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -217,6 +354,25 @@ class _CreateTournamentScreenState
               child: _StepIndicator(
                 currentStep: _currentStep,
                 stepCount: _stepCount,
+              ),
+            ),
+            // "Şablondan Başla" yalnızca adım 0'da görünür
+            AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              opacity: _currentStep == 0 ? 1.0 : 0.0,
+              child: IgnorePointer(
+                ignoring: _currentStep != 0,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _showTemplateSheet,
+                      icon: const Icon(Icons.bookmark_border, size: 18),
+                      label: const Text('Şablondan Başla'),
+                    ),
+                  ),
+                ),
               ),
             ),
             Expanded(

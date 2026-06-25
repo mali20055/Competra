@@ -243,6 +243,18 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------
+    // templates (kullanıcı başına turnuva şablonları)
+    // -----------------------------------------------------------------
+    match /templates/{templateId} {
+      allow read: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // -----------------------------------------------------------------
     // notifications  (istemci `userId` alanını sorgular)
     // -----------------------------------------------------------------
     match /notifications/{notificationId} {

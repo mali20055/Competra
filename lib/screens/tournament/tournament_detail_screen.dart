@@ -275,6 +275,54 @@ class _LobbyView extends ConsumerStatefulWidget {
 class _LobbyViewState extends ConsumerState<_LobbyView> {
   bool _starting = false;
 
+  Future<void> _confirmRemoveParticipant(
+    Tournament tournament,
+    Participant participant,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Katılımcıyı Çıkar'),
+        content: Text(
+          '${participant.username} turnuvadan çıkarılsın mı?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
+            child: const Text('Çıkar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    try {
+      await ref.read(tournamentRepositoryProvider).removeParticipant(
+            tournamentId: tournament.id,
+            participantUid: participant.uid,
+          );
+    } catch (e) {
+      if (!mounted) return;
+      final scheme = Theme.of(context).colorScheme;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Katılımcı çıkarılamadı.',
+            style: TextStyle(color: scheme.onError),
+          ),
+          backgroundColor: scheme.error,
+        ),
+      );
+    }
+  }
+
   Future<void> _start() async {
     final t = widget.tournament;
     if (_starting || t.participants.length < 2) return;
@@ -320,6 +368,15 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
       appBar: AppBar(
         title: Text(t.name),
         actions: [
+          if (isAdmin)
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'Turnuvayı Düzenle',
+              onPressed: () => context.pushNamed(
+                RoutePaths.editTournamentName,
+                pathParameters: {'id': t.id},
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.share_outlined),
             tooltip: 'Paylaş',
@@ -407,6 +464,9 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
                             );
                           }
                         },
+                        onRemove: (isAdmin && p.uid != t.ownerId)
+                            ? () => _confirmRemoveParticipant(t, p)
+                            : null,
                       ),
                     ),
                 ],
@@ -552,11 +612,13 @@ class _ParticipantTile extends StatelessWidget {
     required this.name,
     required this.isOwner,
     this.onTap,
+    this.onRemove,
   });
 
   final String name;
   final bool isOwner;
   final VoidCallback? onTap;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -615,6 +677,18 @@ class _ParticipantTile extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+            )
+          else if (onRemove != null)
+            IconButton(
+              icon: Icon(
+                Icons.remove_circle_outline,
+                color: scheme.error,
+                size: 20,
+              ),
+              tooltip: 'Çıkar',
+              onPressed: onRemove,
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
             ),
         ],
       ),
