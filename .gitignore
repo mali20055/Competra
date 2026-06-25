@@ -48,3 +48,6 @@ apps/backend/prisma/*.db-journal
 
 # TypeScript
 *.tsbuildinfo
+
+plans/
+stitch_competra_tournament_manager/
