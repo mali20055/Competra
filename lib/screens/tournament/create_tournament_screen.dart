@@ -198,7 +198,7 @@ class _CreateTournamentScreenState
   }
 
   void _showSelectionWarning() {
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     final message =
         _currentStep == 1 ? l10n.enterFormatWarning : l10n.enterScoreModeWarning;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -212,7 +212,7 @@ class _CreateTournamentScreenState
     final scoreMode = _selectedScoreMode;
     if (format == null || scoreMode == null) return;
 
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     setState(() => _submitting = true);
 
     final effectiveTiebreaker = format == TournamentFormat.knockout
@@ -301,7 +301,7 @@ class _CreateTournamentScreenState
   // ── Şablondan Başla ────────────────────────────────────────────────
 
   void _showTemplateSheet() {
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -415,7 +415,7 @@ class _CreateTournamentScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -522,7 +522,7 @@ class _StepIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

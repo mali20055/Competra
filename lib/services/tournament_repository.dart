@@ -2,15 +2,20 @@ import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/constants/app_constants.dart';
 import '../models/tournament.dart';
 import '../models/roster_entry.dart';
+import '../models/pending_score.dart';
 import 'analytics_service.dart';
 import 'fixture_generator.dart';
 import 'firebase_providers.dart';
 import 'premium_service.dart';
+import 'connectivity_service.dart';
+import 'offline_score_service.dart';
+import 'notification_service.dart';
 
 /// Turnuva şablonu — kullanıcının kaydettiği oluşturma ayarları.
 class TournamentTemplate {
@@ -67,10 +72,11 @@ class TournamentJoinClosedException implements Exception {
 /// oyuncu son skoru girdiğinde sonraki turun oluşturulamaması sorununu çözer
 /// (maçları artık admin SDK üretir, güvenlik kuralları engellemez).
 class TournamentRepository {
-  TournamentRepository(this._firestore, this._auth);
+  TournamentRepository(this._firestore, this._auth, this._ref);
 
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
+  final Ref _ref;
 
   // Karışabilen karakterler (0/O, 1/I) hariç tutulur.
   static const String _codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -255,6 +261,24 @@ class TournamentRepository {
     required int homeScore,
     required int awayScore,
   }) async {
+    final isOnline = _ref.read(isOnlineProvider);
+    if (!isOnline) {
+      final pendingScore = PendingScore()
+        ..tournamentId = tournamentId
+        ..matchId = matchId
+        ..homeScore = homeScore
+        ..awayScore = awayScore
+        ..createdAt = DateTime.now();
+      await OfflineScoreService.saveScore(pendingScore);
+
+      NotificationService.messengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text('Çevrimdışısınız. Skor bağlantı gelince gönderilecek.'),
+        ),
+      );
+      return;
+    }
+
     final matchRef =
         _tournaments.doc(tournamentId).collection('matches').doc(matchId);
     await matchRef.update({
@@ -264,6 +288,26 @@ class TournamentRepository {
       'status': 'completed',
     });
     AnalyticsService.logMatchScoreEntered().ignore();
+  }
+
+  Future<void> syncPendingScores() async {
+    final pending = OfflineScoreService.getPendingScores();
+    if (pending.isEmpty) return;
+
+    for (int i = pending.length - 1; i >= 0; i--) {
+      final s = pending[i];
+      try {
+        await updateMatchScore(
+          tournamentId: s.tournamentId,
+          matchId: s.matchId,
+          homeScore: s.homeScore,
+          awayScore: s.awayScore,
+        );
+        await OfflineScoreService.clearScore(i);
+      } catch (_) {
+        // Başarısız olursa listede kalsın
+      }
+    }
   }
 
   /// winnerEntry/doubleEntry modunda bir oyuncunun skor girişini kaydeder;
@@ -515,10 +559,21 @@ class TournamentsPage {
 }
 
 final tournamentRepositoryProvider = Provider<TournamentRepository>(
-  (ref) => TournamentRepository(
-    ref.watch(firestoreProvider),
-    ref.watch(firebaseAuthProvider),
-  ),
+  (ref) {
+    final repo = TournamentRepository(
+      ref.watch(firestoreProvider),
+      ref.watch(firebaseAuthProvider),
+      ref,
+    );
+
+    ref.listen<bool>(isOnlineProvider, (previous, next) {
+      if (next == true) {
+        repo.syncPendingScores();
+      }
+    });
+
+    return repo;
+  },
 );
 
 /// O an oturum açmış kullanıcının katıldığı en yeni

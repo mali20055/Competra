@@ -10,6 +10,7 @@
         "cached_network_image",
         "cloud_firestore",
         "confetti",
+        "connectivity_plus",
         "cupertino_icons",
         "firebase_analytics",
         "firebase_app_check",
@@ -26,15 +27,16 @@
         "go_router",
         "google_fonts",
         "google_sign_in",
+        "hive_ce",
+        "hive_ce_flutter",
         "image_cropper",
         "image_picker",
         "intl",
-        "lottie",
         "mobile_scanner",
         "path_provider",
         "purchases_flutter",
+        "purchases_ui_flutter",
         "qr_flutter",
-        "rive",
         "share_plus",
         "shared_preferences",
         "shimmer"
@@ -67,6 +69,49 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "purchases_ui_flutter",
+      "version": "10.3.0",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface",
+        "purchases_flutter"
+      ]
+    },
+    {
+      "name": "hive_ce_flutter",
+      "version": "2.3.4",
+      "dependencies": [
+        "flutter",
+        "hive_ce",
+        "path",
+        "path_provider"
+      ]
+    },
+    {
+      "name": "hive_ce",
+      "version": "2.19.3",
+      "dependencies": [
+        "crypto",
+        "isolate_channel",
+        "json_annotation",
+        "meta",
+        "web"
+      ]
+    },
+    {
+      "name": "connectivity_plus",
+      "version": "7.1.1",
+      "dependencies": [
+        "collection",
+        "connectivity_plus_platform_interface",
+        "flutter",
+        "flutter_web_plugins",
+        "meta",
+        "nm",
+        "web"
       ]
     },
     {
@@ -256,27 +301,6 @@
       "version": "0.8.0",
       "dependencies": [
         "flutter",
-        "vector_math"
-      ]
-    },
-    {
-      "name": "rive",
-      "version": "0.14.8",
-      "dependencies": [
-        "flutter",
-        "flutter_web_plugins",
-        "meta",
-        "rive_native"
-      ]
-    },
-    {
-      "name": "lottie",
-      "version": "3.3.3",
-      "dependencies": [
-        "archive",
-        "flutter",
-        "http",
-        "path",
         "vector_math"
       ]
     },
@@ -493,9 +517,53 @@
       ]
     },
     {
+      "name": "plugin_platform_interface",
+      "version": "2.1.8",
+      "dependencies": [
+        "meta"
+      ]
+    },
+    {
+      "name": "json_annotation",
+      "version": "4.12.0",
+      "dependencies": [
+        "meta"
+      ]
+    },
+    {
+      "name": "isolate_channel",
+      "version": "0.6.1",
+      "dependencies": [
+        "meta"
+      ]
+    },
+    {
       "name": "web",
       "version": "1.1.1",
       "dependencies": []
+    },
+    {
+      "name": "crypto",
+      "version": "3.0.7",
+      "dependencies": [
+        "typed_data"
+      ]
+    },
+    {
+      "name": "nm",
+      "version": "0.5.0",
+      "dependencies": [
+        "dbus"
+      ]
+    },
+    {
+      "name": "connectivity_plus_platform_interface",
+      "version": "2.1.0",
+      "dependencies": [
+        "flutter",
+        "meta",
+        "plugin_platform_interface"
+      ]
     },
     {
       "name": "flutter_web_plugins",
@@ -529,13 +597,6 @@
         "flutter",
         "http",
         "plugin_platform_interface"
-      ]
-    },
-    {
-      "name": "plugin_platform_interface",
-      "version": "2.1.8",
-      "dependencies": [
-        "meta"
       ]
     },
     {
@@ -971,20 +1032,11 @@
       ]
     },
     {
-      "name": "rive_native",
-      "version": "0.1.8",
+      "name": "flutter_shaders",
+      "version": "0.1.3",
       "dependencies": [
-        "args",
-        "ffi",
         "flutter",
-        "flutter_web_plugins",
-        "graphs",
-        "http",
-        "meta",
-        "path",
-        "plugin_platform_interface",
-        "vector_math",
-        "web"
+        "vector_math"
       ]
     },
     {
@@ -995,29 +1047,6 @@
         "http_parser",
         "meta",
         "web"
-      ]
-    },
-    {
-      "name": "archive",
-      "version": "4.0.9",
-      "dependencies": [
-        "path",
-        "posix"
-      ]
-    },
-    {
-      "name": "flutter_shaders",
-      "version": "0.1.3",
-      "dependencies": [
-        "flutter",
-        "vector_math"
-      ]
-    },
-    {
-      "name": "crypto",
-      "version": "3.0.7",
-      "dependencies": [
-        "typed_data"
       ]
     },
     {
@@ -1212,6 +1241,23 @@
       ]
     },
     {
+      "name": "typed_data",
+      "version": "1.4.0",
+      "dependencies": [
+        "collection"
+      ]
+    },
+    {
+      "name": "dbus",
+      "version": "0.7.14",
+      "dependencies": [
+        "args",
+        "ffi",
+        "meta",
+        "xml"
+      ]
+    },
+    {
       "name": "_flutterfire_internals",
       "version": "1.3.73",
       "dependencies": [
@@ -1313,18 +1359,6 @@
       "dependencies": []
     },
     {
-      "name": "args",
-      "version": "2.7.0",
-      "dependencies": []
-    },
-    {
-      "name": "graphs",
-      "version": "2.3.2",
-      "dependencies": [
-        "collection"
-      ]
-    },
-    {
       "name": "http_parser",
       "version": "4.1.2",
       "dependencies": [
@@ -1332,22 +1366,6 @@
         "source_span",
         "string_scanner",
         "typed_data"
-      ]
-    },
-    {
-      "name": "posix",
-      "version": "6.5.0",
-      "dependencies": [
-        "ffi",
-        "meta",
-        "path"
-      ]
-    },
-    {
-      "name": "typed_data",
-      "version": "1.4.0",
-      "dependencies": [
-        "collection"
       ]
     },
     {
@@ -1385,6 +1403,20 @@
     {
       "name": "vm_service",
       "version": "15.2.0",
+      "dependencies": []
+    },
+    {
+      "name": "xml",
+      "version": "6.6.1",
+      "dependencies": [
+        "collection",
+        "meta",
+        "petitparser"
+      ]
+    },
+    {
+      "name": "args",
+      "version": "2.7.0",
       "dependencies": []
     },
     {
@@ -1602,6 +1634,14 @@
         "source_span",
         "watcher",
         "yaml"
+      ]
+    },
+    {
+      "name": "petitparser",
+      "version": "7.0.2",
+      "dependencies": [
+        "collection",
+        "meta"
       ]
     },
     {

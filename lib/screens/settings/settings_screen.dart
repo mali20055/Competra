@@ -19,7 +19,7 @@ class SettingsScreen extends ConsumerWidget {
     final scheme = theme.colorScheme;
     final themeMode = ref.watch(themeModeProvider);
     final isDark = themeMode == ThemeMode.dark;
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     final selectedLocale = ref.watch(localeProvider);
 
     return Scaffold(
@@ -62,7 +62,7 @@ class SettingsScreen extends ConsumerWidget {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: DropdownButtonFormField<Locale?>(
-                    value: selectedLocale,
+                    initialValue: selectedLocale,
                     decoration: InputDecoration(
                       prefixIcon: Icon(Icons.language, color: scheme.primary),
                       labelText: l10n.language,
@@ -157,7 +157,7 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _confirmSignOut(BuildContext context, WidgetRef ref) async {
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -189,7 +189,7 @@ class SettingsScreen extends ConsumerWidget {
   /// İki aşamalı hesap silme: önce uyarı onayı, sonra (e-posta hesaplarında)
   /// şifre doğrulaması; ardından [AuthService.deleteAccount] çağrılır.
   Future<void> _deleteAccountFlow(BuildContext context, WidgetRef ref) async {
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     // Aşama 1: emin misin? uyarısı.
     final confirmed = await showDialog<bool>(
       context: context,
@@ -284,7 +284,7 @@ class _PasswordPromptDialogState extends State<_PasswordPromptDialog> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
       title: Text(l10n.enterPassword),
       content: Column(

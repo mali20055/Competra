@@ -182,7 +182,7 @@ export const onMatchWritten = onDocumentWritten(
  *     `users/{userId}.fcmToken` Firestore'dan silinir.
  */
 export const onNotificationCreated = onDocumentCreated(
-  "notifications/{notificationId}",
+  {document: "notifications/{notificationId}", region: "europe-west3"},
   async (event) => {
     const snap = event.data;
     if (!snap) return;
@@ -300,6 +300,15 @@ async function applyMatchStats(
     const snap = await tx.get(matchRef);
     if (!snap.exists) return null;
     const data = snap.data()!;
+
+    // Skor değer doğrulaması — negatif veya aşırı büyük skor istatistik bozmasın
+    const homeGoals = (data.homeScore as number | null | undefined) ?? 0;
+    const awayGoals = (data.awayScore as number | null | undefined) ?? 0;
+    if (homeGoals < 0 || awayGoals < 0 || homeGoals > 99 || awayGoals > 99) {
+      logger.warn("Invalid score values", {homeGoals, awayGoals, matchId});
+      return null;
+    }
+
     if (data.statsApplied === true) return null;
 
     const m = parseMatch(matchId, data);
@@ -897,7 +906,7 @@ function clamp(v: number, lo: number, hi: number): number {
 // Her ayın 1'inde çalışır (00:00 Türkiye saati = UTC+3)
 export const startNewSeason = onSchedule(
   {
-    schedule: "0 21 1 * *", // UTC 21:00 = TR 00:00
+    schedule: "0 0 1 * *", // Europe/Istanbul gece yarısı (timeZone aşağıda)
     region: "europe-west3",
     timeZone: "Europe/Istanbul",
   },

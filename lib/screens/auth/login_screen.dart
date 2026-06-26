@@ -93,7 +93,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       if (mounted) _showError(e.message);
     } catch (_) {
       if (mounted) {
-        final l10n = AppLocalizations.of(context)!;
+        final l10n = AppLocalizations.of(context);
         _showError(l10n.unknownError);
       }
     } finally {
@@ -121,7 +121,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       if (mounted) _showError(e.message);
     } catch (_) {
       if (mounted) {
-        final l10n = AppLocalizations.of(context)!;
+        final l10n = AppLocalizations.of(context);
         _showError(l10n.unknownError);
       }
     } finally {
@@ -145,7 +145,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       body: PitchPatternBackground(
@@ -337,7 +337,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   Future<void> _onForgotPassword() async {
     if (_loading) return;
     final username = _loginUsername.text.trim();
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     if (username.isEmpty) {
       _showError(l10n.enterUsernameFirst);
       return;

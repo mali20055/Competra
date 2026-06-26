@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../l10n/app_localizations.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -10,8 +11,10 @@ import '../../models/tournament.dart';
 import '../../models/roster_entry.dart';
 import '../../router/route_paths.dart';
 import '../../services/firebase_providers.dart';
+import '../../services/analytics_service.dart';
 import '../../services/tournament_repository.dart';
 import '../../components/player_avatar.dart';
+import 'widgets/bracket_tab.dart';
 
 /// Turnuvanın QR kodunu ve davet kodunu bir modal bottom sheet'te gösterir.
 void _showQrModal(BuildContext context, Tournament tournament) {
@@ -47,6 +50,7 @@ void _showQrModal(BuildContext context, Tournament tournament) {
                       'competra://join/${tournament.inviteCode}',
                 ),
               );
+              AnalyticsService.logInviteSent().ignore();
             },
             icon: const Icon(Icons.share),
             label: const Text('Paylaş'),
@@ -58,12 +62,13 @@ void _showQrModal(BuildContext context, Tournament tournament) {
 }
 
 /// Turnuvayı sistem paylaşım sayfasıyla (WhatsApp vb.) davet metni olarak paylaşır.
-Future<void> _shareTournament(Tournament tournament) {
+Future<void> _shareTournament(Tournament tournament) async {
   final text =
       "Competra'da ${tournament.name} turnuvasına katıl! 🏆\n"
       'Davet kodu: ${tournament.inviteCode}\n'
       'Uygulamayı indir ve kodu gir!';
-  return SharePlus.instance.share(ShareParams(text: text));
+  await SharePlus.instance.share(ShareParams(text: text));
+  AnalyticsService.logInviteSent().ignore();
 }
 
 /// Turnuva detay ekranı.
@@ -140,8 +145,27 @@ class _DetailView extends ConsumerWidget {
         DateTime.now().difference(completedAt).inHours < 24;
     final hasMvp = tournament.mvpUid != null && tournament.mvpUid!.isNotEmpty;
 
+    final showBracket = tournament.format == 'knockout' ||
+        tournament.format == 'groupKnockout' ||
+        tournament.format == 'championsLeague';
+
+    final showStandings = tournament.format != 'knockout';
+
+    final List<Tab> tabs = [
+      const Tab(text: 'Fikstür'),
+      if (showStandings) const Tab(text: 'Puan Tablosu'),
+      if (showBracket) const Tab(text: 'Bracket'),
+      const Tab(text: 'İstatistikler'),
+    ];
+
+    int initialIndex = 0;
+    if (showBracket && (tournament.currentPhase == 'knockout' || tournament.isCompleted)) {
+      initialIndex = showStandings ? 2 : 1;
+    }
+
     return DefaultTabController(
-      length: 3,
+      length: tabs.length,
+      initialIndex: initialIndex,
       child: Scaffold(
         appBar: AppBar(
           title: Text(tournament.name),
@@ -211,12 +235,8 @@ class _DetailView extends ConsumerWidget {
               onPressed: () => _showInviteCode(context, tournament.inviteCode),
             ),
           ],
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Fikstür'),
-              Tab(text: 'Puan Tablosu'),
-              Tab(text: 'İstatistikler'),
-            ],
+          bottom: TabBar(
+            tabs: tabs,
           ),
         ),
         body: Column(
@@ -246,10 +266,16 @@ class _DetailView extends ConsumerWidget {
                         tournament: tournament,
                         matches: matches,
                       ),
-                      _StandingsTab(
-                        standings: standings,
-                        tiebreakerMode: tournament.tiebreakerMode,
-                      ),
+                      if (showStandings)
+                        _StandingsTab(
+                          standings: standings,
+                          tiebreakerMode: tournament.tiebreakerMode,
+                        ),
+                      if (showBracket)
+                        BracketTab(
+                          tournament: tournament,
+                          matches: matches,
+                        ),
                       _StatsTab(scorers: scorers),
                     ],
                   );
@@ -1618,7 +1644,7 @@ class _InfoHeader extends StatelessWidget {
         children: [
           _Chip(
             icon: Icons.category_outlined,
-            label: tournamentFormatLabel(tournament.format),
+            label: tournamentFormatLabel(tournament.format, AppLocalizations.of(context)),
           ),
           const SizedBox(width: 8),
           _Chip(

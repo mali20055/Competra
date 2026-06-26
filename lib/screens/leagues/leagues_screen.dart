@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../l10n/app_localizations.dart';
 
 import '../../components/skeleton_widgets.dart';
 import '../../core/constants/app_constants.dart';
@@ -328,7 +329,7 @@ class _TournamentCard extends StatelessWidget {
                     Row(
                       children: [
                         _Badge(
-                          label: tournamentFormatLabel(tournament.format).toUpperCase(),
+                          label: tournamentFormatLabel(tournament.format, AppLocalizations.of(context)).toUpperCase(),
                           color: scheme.primary,
                         ),
                         const SizedBox(width: 8),

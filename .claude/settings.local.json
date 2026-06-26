@@ -11,7 +11,10 @@
       "PowerShell(firebase deploy *)",
       "Bash(git mv *)",
       "Bash(npm install *)",
-      "Bash(firebase deploy *)"
+      "Bash(firebase deploy *)",
+      "Bash(ls test/)",
+      "Bash(ls functions/test)",
+      "Bash(ls functions/src/*.test.ts)"
     ]
   }
 }

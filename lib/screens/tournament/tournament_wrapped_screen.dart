@@ -11,11 +11,68 @@ import 'package:share_plus/share_plus.dart';
 import '../../models/tournament.dart';
 import '../../services/analytics_service.dart';
 import '../../services/share_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../../services/tournament_repository.dart';
 
 final _mvpVotesProvider = FutureProvider.family<Map<String, int>, String>((ref, id) {
   return ref.read(tournamentRepositoryProvider).getMvpVotes(id);
 });
+
+typedef _EloEntry = ({String name, int change});
+
+final _tournamentEloChangesProvider = FutureProvider.family<List<_EloEntry>, String>(
+  (ref, tournamentId) async {
+    final tDoc = await FirebaseFirestore.instance
+        .collection('tournaments')
+        .doc(tournamentId)
+        .get();
+    if (!tDoc.exists) return [];
+
+    final tData = tDoc.data()!;
+    final createdAt = (tData['createdAt'] as Timestamp?)?.toDate();
+    if (createdAt == null) return [];
+    final completedAt = (tData['completedAt'] as Timestamp?)?.toDate();
+
+    final participants = List<Map<String, dynamic>>.from(
+      tData['participants'] as List? ?? [],
+    );
+
+    final results = <_EloEntry>[];
+    for (final p in participants) {
+      final uid = p['uid'] as String? ?? '';
+      final name = p['username'] as String? ?? 'Oyuncu';
+      if (uid.isEmpty) continue;
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      if (!userDoc.exists) continue;
+
+      final history = List<Map<String, dynamic>>.from(
+        userDoc.data()?['eloHistory'] as List? ?? [],
+      );
+
+      int totalChange = 0;
+      for (final entry in history) {
+        final entryDate = (entry['date'] as Timestamp?)?.toDate();
+        if (entryDate == null) continue;
+        final afterStart = entryDate.isAfter(createdAt);
+        final beforeEnd = completedAt == null ||
+            entryDate.isBefore(completedAt.add(const Duration(hours: 1)));
+        if (afterStart && beforeEnd) {
+          totalChange += ((entry['change'] as num?) ?? 0).toInt();
+        }
+      }
+
+      if (totalChange != 0) results.add((name: name, change: totalChange));
+    }
+
+    results.sort((a, b) => b.change.compareTo(a.change));
+    return results;
+  },
+);
 
 class TournamentWrappedScreen extends ConsumerStatefulWidget {
   const TournamentWrappedScreen({super.key, required this.tournamentId});
@@ -166,6 +223,7 @@ class _TournamentWrappedScreenState extends ConsumerState<TournamentWrappedScree
 
     final tournamentAsync = ref.watch(tournamentStreamProvider(widget.tournamentId));
     final mvpVotesAsync = ref.watch(_mvpVotesProvider(widget.tournamentId));
+    final eloChangesAsync = ref.watch(_tournamentEloChangesProvider(widget.tournamentId));
 
     return Scaffold(
       appBar: AppBar(
@@ -200,7 +258,7 @@ class _TournamentWrappedScreenState extends ConsumerState<TournamentWrappedScree
                   final topScorer = scorers.isNotEmpty ? scorers.first : null;
                   final topScorerName = topScorer?.name ?? '—';
                   final topScorerGoals = topScorer?.goals ?? 0;
-                  final totalGoals = scorers.fold<int>(0, (sum, s) => sum + s.goals);
+                  final totalGoals = scorers.fold<int>(0, (acc, s) => acc + s.goals);
                   final playedMatches = matches.where((m) => m.isPlayed && !m.isBye).toList();
                   final playedCount = playedMatches.length;
 
@@ -210,9 +268,9 @@ class _TournamentWrappedScreenState extends ConsumerState<TournamentWrappedScree
                   if (mvpVotes.isNotEmpty) {
                     String? maxMvpUid;
                     int maxVotes = -1;
-                    mvpVotes.forEach((uid, count) {
-                      if (count > maxVotes) {
-                        maxVotes = count;
+                    mvpVotes.forEach((uid, voteCount) {
+                      if (voteCount > maxVotes) {
+                        maxVotes = voteCount;
                         maxMvpUid = uid;
                       }
                     });
@@ -274,9 +332,9 @@ class _TournamentWrappedScreenState extends ConsumerState<TournamentWrappedScree
                       }
                     }
                     if (dayCounts.isNotEmpty) {
-                      dayCounts.forEach((date, count) {
-                        if (count > maxMatches) {
-                          maxMatches = count;
+                      dayCounts.forEach((date, dayCount) {
+                        if (dayCount > maxMatches) {
+                          maxMatches = dayCount;
                           busiestDate = date;
                         }
                       });
@@ -501,52 +559,49 @@ class _TournamentWrappedScreenState extends ConsumerState<TournamentWrappedScree
                     ));
                   }
 
-                  // Slide 5: ELO Changes
-                  slides.add((
-                    key: _eloSlideKey,
-                    shareText: '⚡ ELO değişimleri ve turnuva istatistikleri competra.app\'te!',
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.bolt, size: 48, color: scheme.primary),
-                        const SizedBox(height: 16),
-                        Text(
-                          'ELO DEĞİŞİMLERİ',
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: scheme.primary,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 3,
+                  // Slide 5: ELO Changes — gerçek eloHistory verisiyle
+                  final eloChanges = eloChangesAsync.asData?.value ?? [];
+                  if (eloChanges.isNotEmpty) {
+                    slides.add((
+                      key: _eloSlideKey,
+                      shareText: '⚡ ELO değişimleri ve turnuva istatistikleri competra.app\'te!',
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.bolt, size: 48, color: scheme.primary),
+                          const SizedBox(height: 16),
+                          Text(
+                            'ELO DEĞİŞİMLERİ',
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: scheme.primary,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 3,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 24),
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: scheme.primary.withValues(alpha: 0.05),
-                            borderRadius: BorderRadius.circular(16),
+                          const SizedBox(height: 24),
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: scheme.primary.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              children: [
+                                for (int i = 0; i < eloChanges.length && i < 5; i++) ...[
+                                  if (i > 0) const Divider(height: 16),
+                                  _EloChangeRow(
+                                    name: eloChanges[i].name,
+                                    change: eloChanges[i].change.abs(),
+                                    isGain: eloChanges[i].change >= 0,
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
-                          child: Column(
-                            children: [
-                              _EloChangeRow(name: championName, change: 24, isGain: true),
-                              const Divider(height: 16),
-                              _EloChangeRow(name: topScorerName != '—' ? topScorerName : 'Oyuncu 2', change: 12, isGain: true),
-                              const Divider(height: 16),
-                              _EloChangeRow(name: 'Diğer Oyuncular', change: 8, isGain: false),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Not: Gerçek zamanlı ELO değişimi bir sonraki sürümde (B2) aktif edilecektir.',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ));
+                        ],
+                      ),
+                    ));
+                  }
 
                   // Slide 6: Iron Wall
                   if (ironWall != null) {

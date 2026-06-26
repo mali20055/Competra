@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'offline_banner.dart';
 
 /// Bottom navigation barı barındıran kabuk (shell).
 ///
@@ -36,7 +37,12 @@ class ScaffoldWithNavBar extends StatelessWidget {
         // Home sekmesindeyken: hiçbir şey yapma (uygulama kapanmaz).
       },
       child: Scaffold(
-        body: navigationShell,
+        body: Column(
+          children: [
+            const OfflineBanner(),
+            Expanded(child: navigationShell),
+          ],
+        ),
         bottomNavigationBar: BottomNavigationBar(
         currentIndex: navigationShell.currentIndex,
         onTap: _onTap,

@@ -1,5 +1,4 @@
 import * as admin from 'firebase-admin';
-const FieldValue = admin.firestore.FieldValue;
 const Timestamp = admin.firestore.Timestamp;
 
 export const K_FACTOR = 32;
@@ -45,22 +44,35 @@ export async function updateElo(
   const newAway = newRating(awayR, awayExp, awayActual);
   const now = Timestamp.now();
 
+  const buildBoundedHistory = (
+    existing: unknown[],
+    newEntry: Record<string, unknown>,
+  ): Record<string, unknown>[] => {
+    const arr = Array.isArray(existing) ? existing as Record<string, unknown>[] : [];
+    return [newEntry, ...arr].slice(0, MAX_ELO_HISTORY);
+  };
+
+  const [homeHistoryRaw, awayHistoryRaw] = [
+    homeSnap.data()?.eloHistory ?? [],
+    awaySnap.data()?.eloHistory ?? [],
+  ];
+
   await Promise.all([
     db.collection('users').doc(homeUid).update({
       eloRating: newHome,
-      eloHistory: FieldValue.arrayUnion([{
+      eloHistory: buildBoundedHistory(homeHistoryRaw, {
         rating: newHome,
         change: newHome - homeR,
         date: now,
-      }]),
+      }),
     }),
     db.collection('users').doc(awayUid).update({
       eloRating: newAway,
-      eloHistory: FieldValue.arrayUnion([{
+      eloHistory: buildBoundedHistory(awayHistoryRaw, {
         rating: newAway,
         change: newAway - awayR,
         date: now,
-      }]),
+      }),
     }),
   ]);
 }

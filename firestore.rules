@@ -48,13 +48,11 @@ service cloud.firestore {
     // geçiremez, yalnızca participantIds/participants listelerine kendini ekler.
     function joiningSelfOnly() {
       return isSignedIn()
-        && !(request.auth.uid in resource.data.participantIds)
-        && (request.auth.uid in request.resource.data.participantIds)
-        && request.resource.data.ownerId == resource.data.ownerId
-        && request.resource.data.status == resource.data.status
-        && request.resource.data.inviteCode == resource.data.inviteCode
-        && request.resource.data.name == resource.data.name
-        && request.resource.data.format == resource.data.format;
+        && resource.data.status == 'waiting'
+        && request.resource.data.diff(resource.data)
+             .affectedKeys()
+             .hasOnly(['participantIds', 'participants'])
+        && request.resource.data.participantIds.hasAll([request.auth.uid]);
     }
 
     // İzin verilen alanlar dışında hiçbir alan değişmemiş mi? (merge yazımında
@@ -63,6 +61,16 @@ service cloud.firestore {
     function changedKeysWithin(allowed) {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(allowed);
+    }
+
+    function validScore(score) {
+      return score is int && score >= 0 && score <= 99;
+    }
+
+    function scoresAreValid() {
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      return (!('homeScore' in affected) || validScore(request.resource.data.homeScore))
+          && (!('awayScore' in affected) || validScore(request.resource.data.awayScore));
     }
 
     // -----------------------------------------------------------------
@@ -163,7 +171,8 @@ service cloud.firestore {
                    'homeScore', 'awayScore', 'played', 'status',
                    'enteredBy', 'enteredHomeScore', 'enteredAwayScore',
                    'secondEnteredBy', 'secondEnteredHomeScore', 'secondEnteredAwayScore'
-                 ]));
+                 ])
+              && scoresAreValid());
         allow create: if isTournamentAdmin(tournamentId);
         allow delete: if isTournamentAdmin(tournamentId);
       }

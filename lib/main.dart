@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -16,6 +17,7 @@ import 'router/app_router.dart';
 import 'services/app_settings.dart';
 import 'services/firebase_providers.dart';
 import 'services/notification_service.dart';
+import 'services/offline_score_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,8 +25,15 @@ Future<void> main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
+
+  await OfflineScoreService.init();
+
   await Purchases.configure(
-    PurchasesConfiguration('YOUR_REVENUECAT_PUBLIC_KEY'),
+    PurchasesConfiguration('test_CTlsqBFkaBLlLMshuYuptUATREe'),
   );
 
   // ignore: deprecated_member_use
