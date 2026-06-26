@@ -1069,7 +1069,7 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
 
   Future<void> _start() async {
     final t = widget.tournament;
-    if (_starting || t.participants.length < 2) return;
+    if (_starting || t.participants.isEmpty) return;
     setState(() => _starting = true);
     try {
       await ref.read(tournamentRepositoryProvider).startTournament(
@@ -1107,7 +1107,7 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
     final user = ref.watch(currentUserProvider);
     final isAdmin = user != null && (user.uid == t.ownerId || t.adminIds.contains(user.uid));
     final isOwner = user != null && user.uid == t.ownerId;
-    final enoughPlayers = t.participants.length >= 2;
+    final enoughPlayers = t.participants.isNotEmpty;
     final myPredictionAsync = ref.watch(myTournamentPredictionProvider(t.id));
 
     return Scaffold(
@@ -1375,7 +1375,7 @@ class _LobbyViewState extends ConsumerState<_LobbyView> {
                           Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: Text(
-                              'Başlatmak için en az 2 oyuncu gerekli.',
+                              'Başlatmak için en az 1 oyuncu gerekli.',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: scheme.onSurfaceVariant,
                               ),
